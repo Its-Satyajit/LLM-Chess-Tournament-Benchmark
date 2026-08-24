@@ -1,3 +1,5 @@
+// @ts-expect-error lint requires React import
+import React from "react"
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { getGameState, getMatch, type GameState } from '../lib/api'

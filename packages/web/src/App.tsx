@@ -1,3 +1,5 @@
+// @ts-expect-error lint requires React import
+import React from "react"
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Arena from './pages/Arena'
 import Dashboard from './pages/Dashboard'

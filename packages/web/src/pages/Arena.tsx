@@ -1,3 +1,5 @@
+// @ts-expect-error lint requires React import
+import React from "react"
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getMatch, getGameState, GameState } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'

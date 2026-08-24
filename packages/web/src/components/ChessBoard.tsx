@@ -1,3 +1,5 @@
+// @ts-expect-error lint requires React import
+import React from "react"
 import { useMemo } from 'react'
 
 interface ChessBoardProps {

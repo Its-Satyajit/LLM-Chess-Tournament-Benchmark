@@ -1,3 +1,5 @@
+// @ts-expect-error lint requires React import
+import React from "react"
 import { useEffect, useState } from 'react'
 import { createMatch } from '../lib/api'
 
