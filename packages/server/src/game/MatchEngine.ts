@@ -78,7 +78,7 @@ export interface MoveResult {
 }
 
 export interface GameStateResponse {
-  clock: { black: number; white: number | undefined } | { black: number | undefined; white: number }
+  clock: { black?: number; white?: number }
   fen: string
   history: string[]
   isCheck: boolean
@@ -318,7 +318,8 @@ export class MatchEngine {
     const state = game.chessGame.getGameState(),
      legalMoves = game.chessGame.getLegalMoves()
 
-    // ADR-005: Only show requesting player's clock, never opponent's
+    // ADR-005: Only show requesting player's clock, never opponent's;
+    // unauthenticated spectators see neither
     let clock: GameStateResponse['clock']
     if (playerId) {
       const isWhite = playerId === game.whitePlayerId
@@ -326,11 +327,7 @@ export class MatchEngine {
         ? { black: undefined, white: game.clock.getWhiteTime() }
         : { black: game.clock.getBlackTime(), white: undefined }
     } else {
-      // Public/spectator view: show both clocks
-      clock = {
-        black: game.clock.getBlackTime(),
-        white: game.clock.getWhiteTime(),
-      }
+      clock = { black: undefined, white: undefined }
     }
 
     return {

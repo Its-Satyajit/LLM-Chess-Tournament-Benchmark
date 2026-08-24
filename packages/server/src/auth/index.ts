@@ -3,6 +3,10 @@ import { status } from 'elysia'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'llm-chess-arena-secret-change-in-production'
 
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET must be set in production')
+}
+
 export interface PlayerToken {
   sub: string // Player ID
   match: string // Match ID
@@ -85,6 +89,34 @@ export function extractPlayerId(headers: Record<string, string | undefined>): st
   }
   const payload = verifyPlayerToken(authHeader.slice(7))
   return payload?.sub ?? null
+}
+
+// --- Request authentication (Story 44: tokens scoped to a single match) ---
+
+export type AuthResult =
+  | { ok: true; playerId: string }
+  | { ok: false; httpStatus: 401 | 403; error: string }
+
+export function authenticateRequest(
+  headers: Record<string, string | undefined>,
+  matchId: string,
+): AuthResult {
+  const authHeader = headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { error: 'Unauthorized', httpStatus: 401, ok: false }
+  }
+
+  const payload = verifyPlayerToken(authHeader.slice(7))
+  if (!payload) {
+    return { error: 'Invalid token', httpStatus: 401, ok: false }
+  }
+
+  // Cross-match access prevention (Story 44)
+  if (payload.match !== matchId) {
+    return { error: 'Forbidden', httpStatus: 403, ok: false }
+  }
+
+  return { ok: true, playerId: payload.sub }
 }
 
 // --- ElysiaJS Guard ---

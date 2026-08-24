@@ -142,3 +142,70 @@ describe("API Integration", () => {
     expect(data.status).toBe("healthy")
   })
 })
+
+describe("Auth enforcement (Stories 44, 46, 47)", () => {
+  let matchId: string
+  let playerAId: string
+  let gameId: string
+
+  it("setup: create match", async () => {
+    const data = await POST("/api/match/create", {
+      playerAModel: { maxOutputTokens: 4096, name: "gpt-4o", provider: "openai", temperature: 0.7, version: "2024-08-06" },
+      playerBModel: { maxOutputTokens: 4096, name: "claude-3", provider: "anthropic", temperature: 0.7, version: "2024-05-14" },
+    }) as Record<string, unknown>
+    matchId = data.matchId as string
+    playerAId = data.playerAId as string
+    gameId = (data.games as { id: string }[])[0].id
+    expect(matchId).toBeDefined()
+  })
+
+  async function raw(path: string, headers?: Record<string, string>, method = "GET", body?: unknown) {
+    return app.handle(new Request(`http://localhost${path}`, {
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: { "Content-Type": "application/json", ...headers },
+      method,
+    }))
+  }
+
+  it("rejects missing token with 401", async () => {
+    const res = await raw(`/api/match/${matchId}/move/${gameId}`, undefined, "POST", { move: "e2e4" })
+    expect(res.status).toBe(401)
+  })
+
+  it("rejects invalid token with 401", async () => {
+    const res = await raw(`/api/match/${matchId}/move/${gameId}`, { Authorization: "Bearer not.a.token" }, "POST", { move: "e2e4" })
+    expect(res.status).toBe(401)
+  })
+
+  it("rejects wrong-match token with 403 (Story 44)", async () => {
+    const other = await POST("/api/match/create", {
+      playerAModel: { maxOutputTokens: 4096, name: "gpt-4o", provider: "openai", temperature: 0.7, version: "2024-08-06" },
+      playerBModel: { maxOutputTokens: 4096, name: "claude-3", provider: "anthropic", temperature: 0.7, version: "2024-05-14" },
+    }) as Record<string, unknown>
+    const foreignToken = generatePlayerToken(other.playerAId as string, other.matchId as string)
+
+    const res = await raw(
+      `/api/match/${matchId}/move/${gameId}`,
+      { Authorization: `Bearer ${foreignToken}` },
+      "POST",
+      { move: "e2e4" },
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it("spectator state shows neither clock (ADR-005)", async () => {
+    const data = await GET(`/api/match/${matchId}/state/${gameId}`) as { clock: { white?: number; black?: number } }
+    expect(data.clock.white).toBeUndefined()
+    expect(data.clock.black).toBeUndefined()
+  })
+
+  it("player state shows only own clock (ADR-005)", async () => {
+    const data = await GET(
+      `/api/match/${matchId}/state/${gameId}`,
+      authHeader(matchId, playerAId),
+    ) as { clock: { white?: number; black?: number }; turn: string }
+    const isWhite = data.turn === "white"
+    expect(isWhite ? data.clock.white : data.clock.black).toBeDefined()
+    expect(isWhite ? data.clock.black : data.clock.white).toBeUndefined()
+  })
+})

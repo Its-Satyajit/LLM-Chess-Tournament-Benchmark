@@ -301,9 +301,9 @@ describe('MatchEngine - Time Control', () => {
         timeControl: '3+2',
       })
 
-      const state = engine.getGameState(match.id, match.games[0].id)
+      const state = engine.getGameState(match.id, match.games[0].id, match.playerAId)
       expect(state.clock.white).toBe(180)
-      expect(state.clock.black).toBe(180)
+      expect(state.clock.black).toBeUndefined()
     })
 
     it('should support Rapid (10+5)', () => {
@@ -316,9 +316,9 @@ describe('MatchEngine - Time Control', () => {
         timeControl: '10+5',
       })
 
-      const state = engine.getGameState(match.id, match.games[0].id)
+      const state = engine.getGameState(match.id, match.games[0].id, match.playerAId)
       expect(state.clock.white).toBe(600)
-      expect(state.clock.black).toBe(600)
+      expect(state.clock.black).toBeUndefined()
     })
 
     it('should support Classical (30+10)', () => {
@@ -331,9 +331,9 @@ describe('MatchEngine - Time Control', () => {
         timeControl: '30+10',
       })
 
-      const state = engine.getGameState(match.id, match.games[0].id)
+      const state = engine.getGameState(match.id, match.games[0].id, match.playerAId)
       expect(state.clock.white).toBe(1800)
-      expect(state.clock.black).toBe(1800)
+      expect(state.clock.black).toBeUndefined()
     })
   })
 
@@ -414,9 +414,9 @@ describe('MatchEngine - Time Control', () => {
       })
 
       const gameId = match.games[0].id
-      const state = engine.getGameState(match.id, gameId)
+      const state = engine.getGameState(match.id, gameId, match.playerAId)
       expect(state.clock.white).toBe(600)
-      expect(state.clock.black).toBe(600)
+      expect(state.clock.black).toBeUndefined()
     })
   })
 })
