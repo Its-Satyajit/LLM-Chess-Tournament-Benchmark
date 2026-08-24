@@ -14,7 +14,7 @@
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/node": "^1.4.5",
-    "@llm-chess-arena/shared": "*",
+    "@llm-chess-arena/shared": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "better-sqlite3": "^13.0.3",

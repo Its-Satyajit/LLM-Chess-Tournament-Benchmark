@@ -5,21 +5,23 @@ interface ChessBoardProps {
 }
 
 const PIECE_UNICODE = {
-  'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
-  'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟',
-} satisfies Record<string, string>
+  K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
+  k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
+} as const
+
+type PieceKey = keyof typeof PIECE_UNICODE
 
 export default function ChessBoard({ fen }: ChessBoardProps) {
   const board = useMemo(() => {
     const rows = fen.split(' ')[0].split('/')
-    const grid: string[][] = []
+    const grid: (string | null)[][] = []
 
     for (const row of rows) {
-      const boardRow: string[] = []
+      const boardRow: (string | null)[] = []
       for (const char of row) {
         if (char >= '1' && char <= '8') {
           for (let i = 0; i < parseInt(char); i++) {
-            boardRow.push('')
+            boardRow.push(null)
           }
         } else {
           boardRow.push(char)
@@ -30,34 +32,32 @@ export default function ChessBoard({ fen }: ChessBoardProps) {
     return grid
   }, [fen])
 
-  // SAFETY: piece is always a valid chess piece character from FEN parsing
-  const getPieceUnicode = (piece: string) => PIECE_UNICODE[piece as keyof typeof PIECE_UNICODE]
-
   return (
-    <div className="border-2 border-gray-600 inline-block w-full max-w-lg aspect-square">
-      {board.map((row, rowIndex) => (
-        <div key={rowIndex} className="flex h-[12.5%]">
-          {row.map((piece, colIndex) => {
-            const isLight = (rowIndex + colIndex) % 2 === 0
-            return (
-              <div
-                key={colIndex}
-                role="img"
-                aria-label={piece ? `${piece === piece.toUpperCase() ? 'white' : 'black'} ${piece}` : undefined}
-                className={`flex items-center justify-center w-[12.5%] ${isLight ? 'bg-amber-200' : 'bg-amber-800'}`}
-              >
-                {piece && (
-                  <span
-                    className={`${piece === piece.toUpperCase() ? 'text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]' : 'text-gray-900'} text-[min(6vw,2.5rem)] leading-none select-none`}
-                  >
-                    {getPieceUnicode(piece)}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      ))}
+    <div className="chessboard">
+      {board.map((row, rowIndex) =>
+        row.map((piece, colIndex) => {
+          const isLight = (rowIndex + colIndex) % 2 === 0
+          // SAFETY: piece is a FEN piece letter, always a key of PIECE_UNICODE
+          const glyph = piece ? PIECE_UNICODE[piece as PieceKey] : null
+          const isWhite = piece !== null && piece === piece.toUpperCase()
+          return (
+            <div
+              key={`${rowIndex}-${colIndex}`}
+              role={piece ? 'img' : undefined}
+              aria-label={
+                piece
+                  ? `${isWhite ? 'white' : 'black'} ${piece.toUpperCase()}`
+                  : undefined
+              }
+              className={`sq ${isLight ? 'light' : 'dark'}`}
+            >
+              {glyph && (
+                <span className={isWhite ? 'piece-w' : 'piece-b'}>{glyph}</span>
+              )}
+            </div>
+          )
+        }),
+      )}
     </div>
   )
 }

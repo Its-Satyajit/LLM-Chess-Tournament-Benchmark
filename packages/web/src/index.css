@@ -1,3 +1,111 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "@picocss/pico/css/pico.min.css";
+
+/* Arena theme tweaks on top of Pico */
+:root[data-theme="dark"],
+:root:not([data-theme="dark"]) {
+  --pico-font-family: system-ui, sans-serif;
+}
+
+/* Fixed-position nav like the previous header */
+nav.arena-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+nav.arena-nav ul li strong.brand {
+  font-size: 1.1rem;
+}
+
+/* Status pills (WS connection, model selection) */
+.pill {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  border: 1px solid currentColor;
+}
+.pill.live { color: var(--pico-ins-color, #2e7d32); }
+.pill.off { color: var(--pico-del-color, #c62828); }
+.pill.ok { color: var(--pico-ins-color, #2e7d32); }
+.pill.warn { color: #b58a00; }
+
+/* Clock urgency is not color-only: bold + label carries meaning too */
+.clock-low {
+  color: var(--pico-del-color, #c62828);
+  font-weight: bold;
+}
+
+/* Selected model rows */
+button.model-row[aria-pressed="true"] {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+  border-color: var(--pico-primary-background);
+}
+
+/* Chessboard: responsive square grid of squares */
+.chessboard {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: min(100%, 32rem);
+  margin-inline: auto;
+  border: 2px solid var(--pico-muted-border-color);
+  user-select: none;
+}
+.chessboard .sq {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.25rem, 5vw, 2.5rem);
+  line-height: 1;
+}
+.chessboard .sq.light { background: #f0d9b5; }
+.chessboard .sq.dark { background: #b58863; }
+.chessboard .sq .piece-w { color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.chessboard .sq .piece-b { color: #1a1a1a; }
+
+/* Move list */
+.moves-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.move-btn {
+  all: unset;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+.move-btn:hover { background: var(--pico-muted-background); }
+.move-btn:focus-visible { outline: 2px solid var(--pico-primary-background); }
+.move-btn.current { background: var(--pico-primary-focus); font-weight: bold; }
+.move-btn.future { color: var(--pico-muted-color); }
+
+/* Scrollable event/move panels */
+.scroll-y {
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+/* Board placeholder */
+.board-empty {
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 32rem;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pico-muted-background);
+  border-radius: var(--pico-border-radius);
+  text-align: center;
+}

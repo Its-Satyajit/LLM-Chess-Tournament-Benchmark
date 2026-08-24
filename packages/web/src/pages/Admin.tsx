@@ -95,102 +95,97 @@ export default function Admin() {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Admin Panel</h2>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-lg font-bold mb-4">Models</h3>
-          <div className="flex gap-2 mb-4">
-            <input
-              type="text"
-              placeholder="Model name"
-              value={newModel.name}
-              onChange={(e) => setNewModel({ ...newModel, name: e.target.value })}
-              className="flex-1 bg-gray-700 rounded px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
-            />
-            <input
-              type="text"
-              placeholder="Provider"
-              value={newModel.provider}
-              onChange={(e) => setNewModel({ ...newModel, provider: e.target.value })}
-              className="flex-1 bg-gray-700 rounded px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
-            />
-            <button
-              onClick={addModel}
-              disabled={addingModel}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:text-gray-400 rounded px-4 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
-            >
+    <>
+      <h2>Admin Panel</h2>
+      <div className="grid">
+        <article>
+          <h3>Models</h3>
+          <form
+            onSubmit={(e) => { e.preventDefault(); void addModel() }}
+            style={{ display: 'flex', gap: '0.5rem', alignItems: 'end' }}
+          >
+            <label>
+              Model name
+              <input
+                type="text"
+                placeholder="e.g., gpt-4o"
+                value={newModel.name}
+                onChange={(e) => setNewModel({ ...newModel, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Provider
+              <input
+                type="text"
+                placeholder="e.g., openai"
+                value={newModel.provider}
+                onChange={(e) => setNewModel({ ...newModel, provider: e.target.value })}
+              />
+            </label>
+            <button type="submit" disabled={addingModel} aria-busy={addingModel}>
               {addingModel ? 'Adding...' : 'Add'}
             </button>
-          </div>
-          {modelError && <p className="mb-2 text-sm text-red-400">{modelError}</p>}
-          <div className="space-y-2">
-            {modelsState === 'loading' && <p className="text-gray-400 text-sm">Loading models...</p>}
-            {modelsState === 'error' && (
-              <div className="text-sm">
-                <p className="text-red-400 mb-2">Failed to load models.</p>
-                <button
-                  onClick={loadModels}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-            {modelsState === 'loaded' && models.length === 0 && (
-              <p className="text-gray-500 text-sm">No models yet — add one above to get started.</p>
-            )}
+          </form>
+          {modelError && <p role="alert"><small>{modelError}</small></p>}
+          {modelsState === 'loading' && <p aria-busy="true"><small>Loading models...</small></p>}
+          {modelsState === 'error' && (
+            <>
+              <p role="alert"><small>Failed to load models.</small></p>
+              <button onClick={loadModels}>Retry</button>
+            </>
+          )}
+          {modelsState === 'loaded' && models.length === 0 && (
+            <p><small>No models yet — add one above to get started.</small></p>
+          )}
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
             {models.map((m, i) => (
               <button
                 key={i}
+                type="button"
                 onClick={() => toggleModel(i)}
                 aria-pressed={selectedModels.includes(i)}
                 aria-label={`Select ${m.name} (${m.provider})`}
+                className="model-row outline contrast"
                 title={selectedModels.length >= 2 && !selectedModels.includes(i) ? 'Deselect a model first — max 2' : undefined}
-                className={`w-full flex justify-between items-center gap-2 rounded px-3 py-2 cursor-pointer text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 ${
-                  selectedModels.includes(i) ? 'bg-blue-900 border border-blue-500' : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
-                }`}
               >
-                <span className="truncate" title={m.name}>{m.name}</span>
-                <span className="text-gray-400 text-sm shrink-0">{m.provider}</span>
+                <span style={{ float: 'left' }}>{m.name}</span>
+                <span style={{ float: 'right' }}>{m.provider}</span>
               </button>
             ))}
           </div>
-        </div>
+        </article>
 
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-lg font-bold mb-4">Create Match</h3>
-          <p className="text-gray-400 mb-4">
-            Select 2 models to compete in a 4-game match.
+        <article>
+          <h3>Create Match</h3>
+          <p>
+            <small>Select 2 models to compete in a 4-game match.</small>
           </p>
-          <div className="mb-4 text-sm" id="selection-status">
-            {selectedModels.length === 0 && <span className="text-gray-500">No models selected</span>}
-            {selectedModels.length === 1 && <span className="text-yellow-400">Select 1 more model</span>}
+          <div id="selection-status" role="status">
+            {selectedModels.length === 0 && <p><small>No models selected</small></p>}
+            {selectedModels.length === 1 && (
+              <p><span className="pill warn">Select 1 more model</span></p>
+            )}
             {selectedModels.length === 2 && (
-              <span className="text-green-400">
+              <p><span className="pill ok">
                 {models[selectedModels[0]].name} vs {models[selectedModels[1]].name}
-              </span>
+              </span></p>
             )}
           </div>
           <button
             onClick={startMatch}
             disabled={selectedModels.length !== 2 || startingMatch}
             aria-describedby="selection-status"
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:text-gray-400 rounded px-4 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
+            aria-busy={startingMatch}
           >
             {startingMatch ? 'Creating...' : 'Start Match'}
           </button>
           {matchResult && (
-            <p
-              role="status"
-              className={`mt-4 text-sm text-center break-all ${matchResult.ok ? 'text-green-400' : 'text-red-400'}`}
-            >
+            <p role="status" className={matchResult.ok ? 'pill ok' : 'pill off'} style={{ display: 'block', marginTop: '1rem', textAlign: 'center' }}>
               {matchResult.text}
             </p>
           )}
-        </div>
+        </article>
       </div>
-    </div>
+    </>
   )
 }
