@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { matches, games, events, ratings, tournaments, tournamentEntries } from './schema'
+import { describe, expect, it } from 'vitest'
+import { events, games, matches, ratings, tournamentEntries, tournaments } from './schema'
 
 describe('Database Schema', () => {
   describe('matches table', () => {

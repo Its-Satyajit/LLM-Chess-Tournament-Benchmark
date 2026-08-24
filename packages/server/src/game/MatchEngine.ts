@@ -1,5 +1,7 @@
-import { ChessGame, GameState, GameResult } from '../chess/ChessGame'
-import { ModelConfig } from '@llm-chess-arena/shared'
+import type { GameResult } from '../chess/ChessGame';
+import { ChessGame } from '../chess/ChessGame'
+import type { ModelConfig } from '@llm-chess-arena/shared'
+import { LIMITS } from '@llm-chess-arena/shared'
 import { randomBytes } from 'crypto'
 
 // Types
@@ -9,6 +11,7 @@ export interface MatchConfig {
   timeControl: string
   startingPosition: 'standard' | 'chess960'
   boardMode: 'pure' | 'assisted'
+  isPrivate?: boolean
 }
 
 export interface Match {
@@ -24,6 +27,8 @@ export interface Match {
   games: Game[]
   currentGameIndex: number
   createdAt: Date
+  completedAt: Date | null
+  isPrivate: boolean
 }
 
 export interface Game {
@@ -41,15 +46,20 @@ export interface Game {
   messages: Message[]
   chessGame: ChessGame
   clock: ClockManager
-  drawOfferPending: string | null // player ID who offered
-  drawOfferCooldown: number // moves remaining before can offer again
+  drawOfferPending: string | null // Player ID who offered
+  drawOfferCooldown: number // Moves remaining before can offer again
   createdAt: Date
   completedAt: Date | null
+  // Token & API budget tracking
+  apiCallsThisTurn: { white: number; black: number }
+  apiCallsThisGame: { white: number; black: number }
+  tokensThisMove: { white: number; black: number }
+  tokensThisGame: { white: number; black: number }
 }
 
 export interface Message {
   id: string
-  sender: string // player ID
+  sender: string // Player ID
   content: string
   timestamp: Date
 }
@@ -79,13 +89,17 @@ export interface GameStateResponse {
   isGameOver: boolean
 }
 
+const RESET_PERIOD_MS = 30_000 // 30 seconds between games
+
 // Clock Manager
 export class ClockManager {
-  private whiteTime: number // seconds
-  private blackTime: number // seconds
-  private increment: number // seconds
+  private whiteTime: number // Seconds
+  private blackTime: number // Seconds
+  private increment: number // Seconds
   private turnStartTime: number | null = null
   private currentTurn: 'white' | 'black' | null = null
+  private running = false
+  resetEndTime: number | null = null // When the 30s reset period ends
 
   constructor(timeControl: string) {
     const [base, inc] = timeControl.split('+').map(Number)
@@ -97,6 +111,7 @@ export class ClockManager {
   startTurn(color: 'white' | 'black'): void {
     this.currentTurn = color
     this.turnStartTime = Date.now()
+    this.running = true
   }
 
   endTurn(color: 'white' | 'black'): void {
@@ -110,20 +125,35 @@ export class ClockManager {
     }
     this.turnStartTime = null
     this.currentTurn = null
+    this.running = false
   }
 
   getWhiteTime(): number {
+    // If currently running, compute live time
+    if (this.running && this.turnStartTime && this.currentTurn === 'white') {
+      const elapsed = (Date.now() - this.turnStartTime) / 1000
+      return Math.max(0, Math.ceil(this.whiteTime - elapsed))
+    }
     return Math.ceil(this.whiteTime)
   }
 
   getBlackTime(): number {
+    if (this.running && this.turnStartTime && this.currentTurn === 'black') {
+      const elapsed = (Date.now() - this.turnStartTime) / 1000
+      return Math.max(0, Math.ceil(this.blackTime - elapsed))
+    }
     return Math.ceil(this.blackTime)
   }
 
   isFlagFall(color: 'white' | 'black'): boolean {
-    return color === 'white' ? this.whiteTime <= 0 : this.blackTime <= 0
+    return color === 'white' ? this.getWhiteTime() <= 0 : this.getBlackTime() <= 0
   }
 
+  isRunning(): boolean {
+    return this.running
+  }
+
+  // Freeze clock at current position without adding increment
   pause(): void {
     if (this.turnStartTime && this.currentTurn) {
       const elapsed = (Date.now() - this.turnStartTime) / 1000
@@ -135,35 +165,68 @@ export class ClockManager {
     }
     this.turnStartTime = null
     this.currentTurn = null
+    this.running = false
+  }
+
+  // Start 30-second reset period between games
+  startResetPeriod(): void {
+    this.resetEndTime = Date.now() + RESET_PERIOD_MS
+  }
+
+  isInResetPeriod(): boolean {
+    if (this.resetEndTime === null) return false
+    if (Date.now() < this.resetEndTime) return true
+    this.resetEndTime = null
+    return false
+  }
+
+  // Detect insufficient material from FEN
+  isInsufficientMaterial(_simplified?: boolean): boolean {
+    // Simplified check — real implementation uses chess.js
+    return false
   }
 }
 
 // Match Engine
+export type EventCallback = (event: {
+  matchId: string
+  gameId: string
+  eventType: string
+  playerId: string
+  data: Record<string, unknown>
+  timestamp: Date
+}) => void
+
 export class MatchEngine {
-  private matches: Map<string, Match> = new Map()
-  private games: Map<string, Game> = new Map()
-  private events: Array<{
+  private matches = new Map<string, Match>()
+  private games = new Map<string, Game>()
+  private events: {
     matchId: string
     gameId: string
     eventType: string
     playerId: string
     data: Record<string, unknown>
     timestamp: Date
-  }> = []
+  }[] = []
+  private eventListeners: EventCallback[] = []
+
+  onEvent(callback: EventCallback): void {
+    this.eventListeners.push(callback)
+  }
 
   createMatch(config: MatchConfig): Match {
-    const matchId = `MATCH-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`
-    const playerAId = `P-${randomBytes(3).toString('hex').toUpperCase()}`
-    const playerBId = `P-${randomBytes(3).toString('hex').toUpperCase()}`
+    const matchId = `MATCH-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`,
+     playerAId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
+     playerBId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
 
-    const games: Game[] = []
+     games: Game[] = []
     for (let i = 0; i < 4; i++) {
-      const gameId = `GAME-${Date.now()}-${i}-${randomBytes(3).toString('hex').toUpperCase()}`
-      const isChess960 = i >= 2
-      const isWhiteTurn = i % 2 === 0
+      const gameId = `GAME-${Date.now()}-${i}-${randomBytes(3).toString('hex').toUpperCase()}`,
+       isChess960 = i >= 2,
+       isWhiteTurn = i % 2 === 0,
       
-      const whitePlayerId = isWhiteTurn ? playerAId : playerBId
-      const blackPlayerId = isWhiteTurn ? playerBId : playerAId
+       whitePlayerId = isWhiteTurn ? playerAId : playerBId,
+       blackPlayerId = isWhiteTurn ? playerBId : playerAId
       
       let chessGame: ChessGame
       if (isChess960) {
@@ -173,24 +236,28 @@ export class MatchEngine {
       }
       
       const game: Game = {
-        id: gameId,
-        matchId,
-        gameNumber: i + 1,
-        whitePlayerId,
+        apiCallsThisGame: { black: 0, white: 0 },
+        apiCallsThisTurn: { black: 0, white: 0 },
         blackPlayerId,
-        status: i === 0 ? 'active' : 'pending',
-        result: null,
-        fenInitial: chessGame.getGameState().fen,
-        fenFinal: null,
-        moveCount: 0,
-        moves: [],
-        messages: [],
         chessGame,
         clock: new ClockManager(config.timeControl),
-        drawOfferPending: null,
-        drawOfferCooldown: 0,
-        createdAt: new Date(),
         completedAt: null,
+        createdAt: new Date(),
+        drawOfferCooldown: 0,
+        drawOfferPending: null,
+        fenFinal: null,
+        fenInitial: chessGame.getGameState().fen,
+        gameNumber: i + 1,
+        id: gameId,
+        matchId,
+        messages: [],
+        moveCount: 0,
+        moves: [],
+        result: null,
+        status: i === 0 ? 'active' : 'pending',
+        tokensThisGame: { black: 0, white: 0 },
+        tokensThisMove: { black: 0, white: 0 },
+        whitePlayerId,
       }
       
       games.push(game)
@@ -198,18 +265,20 @@ export class MatchEngine {
     }
 
     const match: Match = {
+      boardMode: config.boardMode,
+      completedAt: null,
+      createdAt: new Date(),
+      currentGameIndex: 0,
+      games,
       id: matchId,
+      isPrivate: config.isPrivate ?? false,
       playerAId,
-      playerBId,
       playerAModel: config.playerAModel,
+      playerBId,
       playerBModel: config.playerBModel,
+      startingPosition: config.startingPosition,
       status: 'active',
       timeControl: config.timeControl,
-      startingPosition: config.startingPosition,
-      boardMode: config.boardMode,
-      games,
-      currentGameIndex: 0,
-      createdAt: new Date(),
     }
 
     this.matches.set(matchId, match)
@@ -218,8 +287,8 @@ export class MatchEngine {
     this.logEvent(matchId, games[0].id, 'match_created', 'system', {
       playerAId,
       playerBId,
-      timeControl: config.timeControl,
       startingPosition: config.startingPosition,
+      timeControl: config.timeControl,
     })
 
     return match
@@ -231,60 +300,96 @@ export class MatchEngine {
 
   getCurrentGame(matchId: string): Game | undefined {
     const match = this.matches.get(matchId)
-    if (!match) return undefined
+    if (!match) {return undefined}
     return match.games[match.currentGameIndex]
   }
 
-  getGameState(matchId: string, gameId: string): GameStateResponse {
+  getGameState(_matchId: string, gameId: string): GameStateResponse {
     const game = this.games.get(gameId)
-    if (!game) throw new Error('Game not found')
+    if (!game) {throw new Error('Game not found')}
     
-    const state = game.chessGame.getGameState()
-    const legalMoves = game.chessGame.getLegalMoves()
+    const state = game.chessGame.getGameState(),
+     legalMoves = game.chessGame.getLegalMoves()
     
     return {
-      fen: state.fen,
-      turn: state.turn,
-      legalMoves,
-      history: state.history,
       clock: {
-        white: game.clock.getWhiteTime(),
         black: game.clock.getBlackTime(),
+        white: game.clock.getWhiteTime(),
       },
+      fen: state.fen,
+      history: state.history,
       isCheck: state.isCheck,
       isCheckmate: state.isCheckmate,
-      isStalemate: state.isStalemate,
       isDraw: state.isDraw,
       isGameOver: state.isGameOver,
+      isStalemate: state.isStalemate,
+      legalMoves,
+      turn: state.turn,
     }
   }
 
   makeMove(matchId: string, gameId: string, playerId: string, move: string): MoveResult {
     const match = this.matches.get(matchId)
-    if (!match) return { accepted: false, error: 'MATCH_NOT_FOUND' }
+    if (!match) {return { accepted: false, error: 'MATCH_NOT_FOUND' }}
     
     const game = this.games.get(gameId)
-    if (!game) return { accepted: false, error: 'GAME_NOT_FOUND' }
+    if (!game) {return { accepted: false, error: 'GAME_NOT_FOUND' }}
     
-    if (game.status !== 'active') return { accepted: false, error: 'GAME_NOT_ACTIVE' }
+    if (game.status !== 'active') {return { accepted: false, error: 'GAME_NOT_ACTIVE' }}
+    
+    // Check if game is in reset period
+    if (game.clock.isInResetPeriod()) {
+      return { accepted: false, error: 'RESET_PERIOD' }
+    }
     
     // Check if it's the player's turn
-    const currentTurn = game.chessGame.getGameState().turn
-    const isWhiteTurn = currentTurn === 'white'
-    const expectedPlayer = isWhiteTurn ? game.whitePlayerId : game.blackPlayerId
+    const currentTurn = game.chessGame.getGameState().turn,
+     isWhiteTurn = currentTurn === 'white',
+     expectedPlayer = isWhiteTurn ? game.whitePlayerId : game.blackPlayerId,
+     color = isWhiteTurn ? 'white' as const : 'black' as const
     
     if (playerId !== expectedPlayer) {
       return { accepted: false, error: 'NOT_YOUR_TURN' }
     }
     
-    // Start clock
-    game.clock.startTurn(currentTurn)
+    // Check API call budget
+    if (game.apiCallsThisTurn[color] >= LIMITS.MAX_API_CALLS_PER_TURN) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per turn exceeded' })
+      return { accepted: false, error: 'API_LIMIT' }
+    }
+    if (game.apiCallsThisGame[color] >= LIMITS.MAX_API_CALLS_PER_GAME) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
+      // Forfeit the game
+      const forfeitResult = { reason: 'api_limit' as const, winner: color === 'white' ? 'black' as const : 'white' as const }
+      this.completeGame(match, game, forfeitResult)
+      return { accepted: false, error: 'API_LIMIT' }
+    }
     
-    // Make the move
+    // Check token budget for this move
+    if (game.tokensThisMove[color] >= LIMITS.MAX_TOKENS_PER_MOVE) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per move exceeded' })
+      return { accepted: false, error: 'TOKEN_LIMIT' }
+    }
+    if (game.tokensThisGame[color] >= LIMITS.MAX_TOKENS_PER_GAME) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per game exceeded' })
+      // Forfeit the game
+      const forfeitResult = { reason: 'token_limit' as const, winner: color === 'white' ? 'black' as const : 'white' as const }
+      this.completeGame(match, game, forfeitResult)
+      return { accepted: false, error: 'TOKEN_LIMIT' }
+    }
+    
+    // Check timeout BEFORE making the move
+    const timeoutResult = this.checkTimeout(matchId, gameId)
+    if (timeoutResult.timeout) {
+      return { accepted: false, error: 'TIMEOUT' }
+    }
+    
+    // Track API call for move
+    game.apiCallsThisTurn[color]++
+    game.apiCallsThisGame[color]++
+    
+    // Make the move (clock is managed externally via API routes)
     const result = game.chessGame.makeMove(move)
-    
-    // End clock
-    game.clock.endTurn(currentTurn)
     
     if (result.accepted) {
       game.moveCount++
@@ -292,8 +397,8 @@ export class MatchEngine {
       
       // Log move event
       this.logEvent(matchId, gameId, 'move', playerId, {
-        move,
         fen: game.chessGame.getGameState().fen,
+        move,
       })
       
       // Clear draw offer cooldown if moves were made
@@ -301,45 +406,204 @@ export class MatchEngine {
         game.drawOfferCooldown--
       }
       
+      // Reset turn budget for the next player
+      const nextColor = game.chessGame.getGameState().turn === 'white' ? 'white' : 'black'
+      this.resetTurnBudget(gameId, nextColor)
+      
       // Check if game is over
       if (result.isGameOver) {
-        game.status = 'completed'
-        game.result = result.result || null
-        game.fenFinal = game.chessGame.getGameState().fen
-        game.completedAt = new Date()
-        
-        // Log game over event
-        this.logEvent(matchId, gameId, 'game_over', 'system', {
-          result: result.result,
-        })
-        
-        // Move to next game
-        match.currentGameIndex++
-        if (match.currentGameIndex >= 4) {
-          match.status = 'completed'
-          this.logEvent(matchId, gameId, 'match_completed', 'system', {})
-        } else {
-          match.games[match.currentGameIndex].status = 'active'
-          // Start clock for first player of next game
-          const nextGame = match.games[match.currentGameIndex]
-          nextGame.clock.startTurn('white')
-        }
+        this.completeGame(match, game, result.result || null)
       }
     }
     
     return result
   }
 
+  checkTimeout(matchId: string, gameId: string): { timeout: boolean; loser?: 'white' | 'black'; gameOver: boolean } {
+    const match = this.matches.get(matchId)
+    if (!match) {return { gameOver: false, timeout: false }}
+    
+    const game = this.games.get(gameId)
+    if (!game || game.status !== 'active') {return { gameOver: false, timeout: false }}
+    
+    const currentTurn = game.chessGame.getGameState().turn
+    
+    if (game.clock.isFlagFall(currentTurn)) {
+      // Timeout! The side whose turn it is loses
+      const loser = currentTurn
+      const winner = loser === 'white' ? 'black' : 'white'
+      
+      // Check for insufficient material — draw on timeout
+      const opponentPieces = this.countPieces(game, winner)
+      const isInsufficient = this.isInsufficientMaterial(opponentPieces)
+      
+      const result = isInsufficient
+        ? { reason: 'insufficient_material' as const, winner: null }
+        : { reason: 'timeout' as const, winner: winner as 'white' | 'black' }
+      
+      this.completeGame(match, game, result)
+      
+      this.logEvent(matchId, gameId, 'timeout', 'system', {
+        loser,
+        insufficientMaterial: isInsufficient,
+      })
+      
+      return { gameOver: true, loser, timeout: true }
+    }
+    
+    return { gameOver: false, timeout: false }
+  }
+
+  private countPieces(game: Game, _color: 'white' | 'black'): string[] {
+    // Get piece counts from FEN
+    const fen = game.chessGame.getGameState().fen.split(' ')[0]
+    const pieces: string[] = []
+    for (const char of fen) {
+      if (char !== '/' && char !== ' ' && Number.isNaN(Number(char))) {
+        pieces.push(char)
+      }
+    }
+    return pieces
+  }
+
+  private isInsufficientMaterial(pieces: string[]): boolean {
+    // K vs K, K+B vs K, K+N vs K
+    const whitePieces = pieces.filter(p => p === p.toUpperCase())
+    const blackPieces = pieces.filter(p => p === p.toLowerCase())
+    
+    // Only kings
+    if (whitePieces.length === 1 && blackPieces.length === 1) return true
+    
+    // K+B vs K or K+N vs K
+    if (whitePieces.length === 1 && blackPieces.length === 2) {
+      const nonKing = blackPieces.find(p => p !== 'k')
+      if (nonKing === 'b' || nonKing === 'n') return true
+    }
+    if (blackPieces.length === 1 && whitePieces.length === 2) {
+      const nonKing = whitePieces.find(p => p !== 'K')
+      if (nonKing === 'B' || nonKing === 'N') return true
+    }
+    
+    return false
+  }
+
+  private completeGame(match: Match, game: Game, result: import('../chess/ChessGame').GameResult | null): void {
+    game.status = 'completed'
+    game.result = result
+    game.fenFinal = game.chessGame.getGameState().fen
+    game.completedAt = new Date()
+    
+    // Log game over event
+    this.logEvent(match.id, game.id, 'game_over', 'system', {
+      result,
+    })
+    
+    // Move to next game
+    match.currentGameIndex++
+    if (match.currentGameIndex >= 4) {
+      match.status = 'completed'
+      match.completedAt = new Date()
+      this.logEvent(match.id, game.id, 'match_completed', 'system', {})
+    } else {
+      const nextGame = match.games[match.currentGameIndex]
+      nextGame.status = 'active'
+      // Start 30-second reset period
+      nextGame.clock.startResetPeriod()
+    }
+  }
+
+  // --- Budget Tracking ---
+
+  trackApiCall(matchId: string, gameId: string, playerId: string): boolean {
+    const game = this.games.get(gameId)
+    if (!game) return false
+    const color = this.getPlayerColor(game, playerId)
+    if (!color) return false
+
+    game.apiCallsThisTurn[color]++
+    game.apiCallsThisGame[color]++
+
+    if (game.apiCallsThisTurn[color] > LIMITS.MAX_API_CALLS_PER_TURN) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per turn exceeded' })
+      return false
+    }
+    if (game.apiCallsThisGame[color] > LIMITS.MAX_API_CALLS_PER_GAME) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
+      const match = this.matches.get(matchId)
+      if (match) {
+        this.completeGame(match, game, { reason: 'api_limit', winner: color === 'white' ? 'black' : 'white' })
+      }
+      return false
+    }
+    return true
+  }
+
+  trackTokens(matchId: string, gameId: string, playerId: string, tokens: number): boolean {
+    const game = this.games.get(gameId)
+    if (!game) return false
+    const color = this.getPlayerColor(game, playerId)
+    if (!color) return false
+
+    game.tokensThisMove[color] += tokens
+    game.tokensThisGame[color] += tokens
+
+    if (game.tokensThisMove[color] > LIMITS.MAX_TOKENS_PER_MOVE) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per move exceeded' })
+      return false
+    }
+    if (game.tokensThisGame[color] > LIMITS.MAX_TOKENS_PER_GAME) {
+      this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per game exceeded' })
+      const match = this.matches.get(matchId)
+      if (match) {
+        this.completeGame(match, game, { reason: 'token_limit', winner: color === 'white' ? 'black' : 'white' })
+      }
+      return false
+    }
+    return true
+  }
+
+  resetTurnBudget(gameId: string, color: 'white' | 'black'): void {
+    const game = this.games.get(gameId)
+    if (!game) return
+    game.apiCallsThisTurn[color] = 0
+    game.tokensThisMove[color] = 0
+  }
+
+  getBudget(_matchId: string, gameId: string): { white: { apiCallsTurn: number; apiCallsGame: number; tokensMove: number; tokensGame: number }; black: { apiCallsTurn: number; apiCallsGame: number; tokensMove: number; tokensGame: number } } | null {
+    const game = this.games.get(gameId)
+    if (!game) return null
+    return {
+      black: {
+        apiCallsGame: game.apiCallsThisGame.black,
+        apiCallsTurn: game.apiCallsThisTurn.black,
+        tokensGame: game.tokensThisGame.black,
+        tokensMove: game.tokensThisMove.black,
+      },
+      white: {
+        apiCallsGame: game.apiCallsThisGame.white,
+        apiCallsTurn: game.apiCallsThisTurn.white,
+        tokensGame: game.tokensThisGame.white,
+        tokensMove: game.tokensThisMove.white,
+      },
+    }
+  }
+
+  private getPlayerColor(game: Game, playerId: string): 'white' | 'black' | null {
+    if (playerId === game.whitePlayerId) return 'white'
+    if (playerId === game.blackPlayerId) return 'black'
+    return null
+  }
+
   sendMessage(matchId: string, gameId: string, playerId: string, content: string): { sent: boolean; messageId?: string } {
     const game = this.games.get(gameId)
-    if (!game) return { sent: false }
+    if (!game) {return { sent: false }}
     
-    const messageId = `MSG-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`
+    const messageId = `MSG-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`,
     
-    const message: Message = {
+     message: Message = {
+      content,
       id: messageId,
       sender: playerId,
-      content,
       timestamp: new Date(),
     }
     
@@ -347,29 +611,29 @@ export class MatchEngine {
     
     // Log message event
     this.logEvent(matchId, gameId, 'message', playerId, {
-      messageId,
       content,
+      messageId,
     })
     
-    return { sent: true, messageId }
+    return { messageId, sent: true }
   }
 
-  getMessages(matchId: string, gameId: string, playerId: string): Array<{ sender: string; content: string; timestamp: Date }> {
+  getMessages(_matchId: string, gameId: string, playerId: string): { sender: string; content: string; timestamp: Date }[] {
     const game = this.games.get(gameId)
-    if (!game) return []
+    if (!game) {return []}
     
     return game.messages
       .filter(m => m.sender !== playerId)
       .map(m => ({
-        sender: 'opponent',
         content: m.content,
+        sender: 'opponent',
         timestamp: m.timestamp,
       }))
   }
 
   offerDraw(matchId: string, gameId: string, playerId: string): { sent: boolean } {
     const game = this.games.get(gameId)
-    if (!game) return { sent: false }
+    if (!game) {return { sent: false }}
     
     if (game.drawOfferCooldown > 0) {
       return { sent: false }
@@ -381,86 +645,157 @@ export class MatchEngine {
     this.logEvent(matchId, gameId, 'draw_offer', playerId, {})
     
     return { sent: true }
-  }
-
-  acceptDraw(matchId: string, gameId: string, playerId: string): { accepted: boolean } {
+  }  acceptDraw(matchId: string, gameId: string, playerId: string): { accepted: boolean } {
     const game = this.games.get(gameId)
-    if (!game) return { accepted: false }
-    
+    if (!game) {return { accepted: false }}
+
     if (!game.drawOfferPending || game.drawOfferPending === playerId) {
       return { accepted: false }
     }
-    
-    // Accept the draw
-    game.status = 'completed'
-    game.result = { winner: null, reason: 'draw_offer' }
-    game.fenFinal = game.chessGame.getGameState().fen
-    game.completedAt = new Date()
+
+    const match = this.matches.get(matchId)
+    if (!match) {return { accepted: false }}
+
     game.drawOfferPending = null
-    
+
     // Log draw accept event
     this.logEvent(matchId, gameId, 'draw_accept', playerId, {})
-    
-    // Move to next game
-    const match = this.matches.get(matchId)
-    if (match) {
-      match.currentGameIndex++
-      if (match.currentGameIndex >= 4) {
-        match.status = 'completed'
-        this.logEvent(matchId, gameId, 'match_completed', 'system', {})
-      } else {
-        match.games[match.currentGameIndex].status = 'active'
-        match.games[match.currentGameIndex].clock.startTurn('white')
-      }
-    }
-    
+
+    this.completeGame(match, game, { reason: 'draw_offer', winner: null })
+
     return { accepted: true }
+  }
+
+  rejectDraw(matchId: string, gameId: string, playerId: string): { rejected: boolean } {
+    const game = this.games.get(gameId)
+    if (!game) {return { rejected: false }}
+
+    if (!game.drawOfferPending || game.drawOfferPending === playerId) {
+      return { rejected: false }
+    }
+
+    game.drawOfferPending = null
+    // Set 10-move cooldown after rejection
+    game.drawOfferCooldown = LIMITS.DRAW_OFFER_COOLDOWN_MOVES
+
+    this.logEvent(matchId, gameId, 'draw_reject', playerId, {})
+
+    return { rejected: true }
   }
 
   resign(matchId: string, gameId: string, playerId: string): { resigned: boolean } {
     const game = this.games.get(gameId)
-    if (!game) return { resigned: false }
+    if (!game) {return { resigned: false }}
+    
+    const match = this.matches.get(matchId)
+    if (!match) {return { resigned: false }}
     
     const isWhite = playerId === game.whitePlayerId
-    game.status = 'completed'
-    game.result = {
-      winner: isWhite ? 'black' : 'white',
-      reason: 'resign',
-    }
-    game.fenFinal = game.chessGame.getGameState().fen
-    game.completedAt = new Date()
     
     // Log resign event
     this.logEvent(matchId, gameId, 'resign', playerId, {})
     
-    // Move to next game
-    const match = this.matches.get(matchId)
-    if (match) {
-      match.currentGameIndex++
-      if (match.currentGameIndex >= 4) {
-        match.status = 'completed'
-        this.logEvent(matchId, gameId, 'match_completed', 'system', {})
-      } else {
-        match.games[match.currentGameIndex].status = 'active'
-        match.games[match.currentGameIndex].clock.startTurn('white')
-      }
-    }
+    this.completeGame(match, game, {
+      reason: 'resign',
+      winner: isWhite ? 'black' : 'white',
+    })
     
     return { resigned: true }
   }
 
   private logEvent(matchId: string, gameId: string, eventType: string, playerId: string, data: Record<string, unknown>): void {
-    this.events.push({
-      matchId,
-      gameId,
-      eventType,
-      playerId,
+    const event = {
       data,
+      eventType,
+      gameId,
+      matchId,
+      playerId,
       timestamp: new Date(),
-    })
+    }
+    this.events.push(event)
+    for (const listener of this.eventListeners) {
+      listener(event)
+    }
   }
 
   getEvents(matchId: string): typeof this.events {
     return this.events.filter(e => e.matchId === matchId)
+  }
+
+  // Methods for loading from database
+  addMatch(match: Match): void {
+    this.matches.set(match.id, match)
+    for (const game of match.games) {
+      this.games.set(game.id, game)
+    }
+  }
+
+  addGame(game: Game): void {
+    this.games.set(game.id, game)
+  }
+
+  addEvent(event: {
+    matchId: string
+    gameId: string
+    eventType: string
+    playerId: string
+    data: Record<string, unknown>
+    timestamp: Date
+  }): void {
+    this.events.push(event)
+  }
+
+  // --- Diagnostic Metrics ---
+
+  getMatchMetrics(matchId: string): {
+    totalMoves: number
+    totalMessages: number
+    totalIllegalMoves: number
+    totalDrawOffers: number
+    totalResigns: number
+    totalTimeouts: number
+    whiteWinRate: number
+    blackWinRate: number
+    drawRate: number
+    illegalMoveRate: number
+    avgMovesPerGame: number
+    gameResults: { white_win: number; black_win: number; draw: number }
+  } | null {
+    const match = this.matches.get(matchId)
+    if (!match) return null
+
+    const matchEvents = this.events.filter(e => e.matchId === matchId)
+    const moves = matchEvents.filter(e => e.eventType === 'move')
+    const messages = matchEvents.filter(e => e.eventType === 'message')
+    const illegalMoves = matchEvents.filter(e => e.eventType === 'illegal_move')
+    const drawOffers = matchEvents.filter(e => e.eventType === 'draw_offer')
+    const resigns = matchEvents.filter(e => e.eventType === 'resign')
+    const timeouts = matchEvents.filter(e => e.eventType === 'timeout')
+
+    const completedGames = match.games.filter(g => g.status === 'completed')
+    const results = { black_win: 0, draw: 0, white_win: 0 }
+    for (const g of completedGames) {
+      if (g.result?.winner === 'white') results.white_win++
+      else if (g.result?.winner === 'black') results.black_win++
+      else results.draw++
+    }
+
+    const total = completedGames.length || 1
+    const totalAttempts = moves.length + illegalMoves.length
+
+    return {
+      avgMovesPerGame: moves.length / (completedGames.length || 1),
+      blackWinRate: results.black_win / total,
+      drawRate: results.draw / total,
+      gameResults: results,
+      illegalMoveRate: totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0,
+      totalDrawOffers: drawOffers.length,
+      totalIllegalMoves: illegalMoves.length,
+      totalMessages: messages.length,
+      totalMoves: moves.length,
+      totalResigns: resigns.length,
+      totalTimeouts: timeouts.length,
+      whiteWinRate: results.white_win / total,
+    }
   }
 }
