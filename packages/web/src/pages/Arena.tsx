@@ -1,5 +1,3 @@
-// @ts-expect-error lint requires React import
-import React from "react"
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getMatch, getGameState, GameState } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'
@@ -51,6 +49,8 @@ interface WsEvent {
   from?: string
   accepted?: boolean
 }
+
+const WS_RECONNECT_MS = 3000
 
 export default function Arena() {
   const [matchId, setMatchId] = useState('')

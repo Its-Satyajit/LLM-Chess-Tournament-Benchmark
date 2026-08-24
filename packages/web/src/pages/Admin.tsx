@@ -173,15 +173,21 @@ export default function Admin() {
               </span>
             )}
           </div>
-          <button 
+          <button
             onClick={startMatch}
-            disabled={selectedModels.length !== 2}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded px-4 py-2"
+            disabled={selectedModels.length !== 2 || startingMatch}
+            aria-describedby="selection-status"
+            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:text-gray-400 rounded px-4 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
           >
-            Start Match
+            {startingMatch ? 'Creating...' : 'Start Match'}
           </button>
           {matchResult && (
-            <p className="mt-4 text-sm text-center">{matchResult}</p>
+            <p
+              role="status"
+              className={`mt-4 text-sm text-center break-all ${matchResult.ok ? 'text-green-400' : 'text-red-400'}`}
+            >
+              {matchResult.text}
+            </p>
           )}
         </div>
       </div>

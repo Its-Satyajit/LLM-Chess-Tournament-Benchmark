@@ -211,6 +211,15 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       engine.makeMove(params.matchId, params.gameId, playerId, body.move),
     )
     persistTurn(params.matchId)
+
+    // Story 45: the per-turn allowance resets when a move is accepted
+    if (result.accepted) {
+      const currentGame = engine.getCurrentGame(params.matchId)
+      if (currentGame) {
+        turnRateLimiter.reset(`turn:${currentGame.whitePlayerId}`)
+        turnRateLimiter.reset(`turn:${currentGame.blackPlayerId}`)
+      }
+    }
     return result
   }, {
     body: t.Object({

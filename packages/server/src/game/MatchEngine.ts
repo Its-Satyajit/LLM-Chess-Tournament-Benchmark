@@ -3,6 +3,7 @@ import { ChessGame } from '../chess/ChessGame'
 import type { EventData, ModelConfig } from '@llm-chess-arena/shared'
 import { LIMITS } from '@llm-chess-arena/shared'
 import { randomBytes } from 'crypto'
+import { Chess } from 'chess.js'
 
 // Types
 export interface MatchConfig {
@@ -30,6 +31,13 @@ export interface Match {
   createdAt: Date
   completedAt: Date | null
   isPrivate: boolean
+}
+
+// Blunder/tactical analysis over replayed game history (ADR-017)
+export interface GameAnalysis {
+  blunders: number
+  tacticalBlunders: number
+  tacticalMoves: number
 }
 
 export interface Game {
@@ -845,11 +853,14 @@ export class MatchEngine {
     }
     const avgResponseTime = responseCount > 0 ? totalResponseTime / responseCount : 0
 
-    // blunderRate: illegal moves / total attempts (simplified — no eval available)
-    const blunderRate = totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0
-
-    // tacticalAccuracy: successful moves / total attempts (inverse of blunder rate)
-    const tacticalAccuracy = totalAttempts > 0 ? moves.length / totalAttempts : 1
+    // blunderRate + tacticalAccuracy per ADR-017: material-eval swings over
+    // replayed game history (300cp blunder threshold; tactical moment =
+    // a capture was available to the mover)
+    const { blunders, tacticalMoves, tacticalBlunders } = this.analyseGames(match)
+    const totalMoveCount = moves.length
+    const blunderRate = totalMoveCount > 0 ? blunders / totalMoveCount : 0
+    const tacticalAccuracy =
+      tacticalMoves > 0 ? (tacticalMoves - tacticalBlunders) / tacticalMoves : 1
 
     return {
       avgMovesPerGame: moves.length / (completedGames.length || 1),
@@ -868,5 +879,66 @@ export class MatchEngine {
       totalTimeouts: timeouts.length,
       whiteWinRate: results.white_win / total,
     }
+  }
+
+  // Piece values in centipawns for the material heuristic
+  static readonly PIECE_CP = {
+    p: 100, n: 320, b: 330, r: 500, q: 900, k: 0,
+    P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0,
+  } as const
+
+  private materialCp(chess: Chess): number {
+    let cp = 0
+    for (const row of chess.board()) {
+      for (const square of row) {
+        if (!square) continue
+        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PIECE_CP
+        const value = MatchEngine.PIECE_CP[square.type as keyof typeof MatchEngine.PIECE_CP] ?? 0
+        cp += square.color === 'w' ? value : -value
+      }
+    }
+    return cp
+  }
+
+  // Replay each game's move history with chess.js and score eval swings.
+  // A blunder is a move that drops the mover's material eval by >= 300cp.
+  // A tactical moment is a position where the mover had at least one capture;
+  // a tactical blunder is a blunder committed in such a position.
+  private analyseGames(match: Match): GameAnalysis {
+    let blunders = 0
+    let tacticalMoves = 0
+    let tacticalBlunders = 0
+
+    for (const game of match.games) {
+      const history = game.chessGame.getGameState().history
+      if (history.length === 0) continue
+
+      const replay = new Chess()
+      const BLUNDER_CP = 300
+
+      for (const san of history) {
+        const mover: 'w' | 'b' = replay.turn()
+        const beforeCp = this.materialCp(replay)
+        const hadCapture = replay.moves({ verbose: true }).some(m => m.captured !== undefined)
+
+        let applied
+        try {
+          applied = replay.move(san)
+        } catch {
+          break
+        }
+        if (!applied) break
+
+        const afterCp = this.materialCp(replay)
+        const swing = mover === 'w' ? afterCp - beforeCp : beforeCp - afterCp
+        if (swing <= -BLUNDER_CP) {
+          blunders++
+          if (hadCapture) tacticalBlunders++
+        }
+        if (hadCapture) tacticalMoves++
+      }
+    }
+
+    return { blunders, tacticalBlunders, tacticalMoves }
   }
 }

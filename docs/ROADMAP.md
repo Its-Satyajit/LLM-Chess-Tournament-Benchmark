@@ -76,9 +76,9 @@ This document tells an agent what to build next. It does not repeat the spec —
 
 ## Phase 4: Evaluation (unlocks diagnostic metrics)
 
-### Step 9: Compute missing metrics ⚠️ (placeholders)
+### Step 9: Compute missing metrics ✅ (heuristic)
 
-**Status:** Deferred. `getMatchMetrics()` returns the fields, but `blunderRate` is illegal-moves/attempts ("no eval available") and `tacticalAccuracy` is just `1 − blunderRate` — real eval-based metrics per Stories 52-53 / ADR-017 still needed.
+**Status:** ✅ Done (heuristic). `getMatchMetrics()` computes `blunderRate` and `tacticalAccuracy` from material-eval swings over replayed history (300cp blunder threshold; tactical moment = capture available). Engine-grade eval remains a future upgrade.
 
 **Done when:** `getMatchMetrics()` returns `avgResponseTime`, `blunderRate`, `tacticalAccuracy` in addition to existing win/draw/illegal-move rates. All computed from the event log.
 
@@ -170,9 +170,9 @@ These are explicitly out of scope per spec § Out of Scope:
 | 1. Security | 1-3 | ✅ Complete (auth wired, budgets enforced, clocks scoped) |
 | 2. Frontend Real-Time | 4-5 | ✅ Complete |
 | 3. Match Integrity | 6-8 | ✅ Complete (verify Step 7 clock attribution on GET_STATE per ADR-003) |
-| 4. Evaluation | 9-10 | ⚠️ Partial (Step 9 metrics are placeholders — deferred) |
+| 4. Evaluation | 9-10 | ✅ Complete (Step 9 via material-swing heuristic) |
 | 5. Testing | 11-12 | ✅ Complete (127 tests pass: 125 server + 2 web) |
 | 6. Deployment | 13-14 | ✅ Complete (Docker e2e not executed during review) |
 | 7. UI Quality | 15-18 + bug | ✅ Complete (error states, a11y, nav, responsive board, WS reconnect, route fix) |
 
-**18 steps + 1 bug — all implemented. Remaining deferred items: eval-based metrics (Step 9), per-turn rate-limit reset semantics, eval-based Docker e2e verification.**
+**18 steps + 1 bug — all implemented. Remaining deferred items: engine-grade eval for Step 9 (current: material-swing heuristic, 300cp threshold), Docker e2e execution verification.**
