@@ -21,9 +21,9 @@ export default function Dashboard() {
   useEffect(load, [])
 
   return (
-    <article>
+    <article className="card">
       <h2>Leaderboard</h2>
-      <table>
+      <table data-striped>
         <thead>
           <tr>
             <th scope="col">#</th>

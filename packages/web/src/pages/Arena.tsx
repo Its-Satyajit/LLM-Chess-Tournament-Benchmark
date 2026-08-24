@@ -217,7 +217,7 @@ export default function Arena() {
 
   return (
     <div className="grid">
-      <div className="space-y-4">
+      <div>
         {/* Chess Board */}
         {gameState ? (
           <ChessBoard fen={gameState.fen} />
@@ -233,21 +233,23 @@ export default function Arena() {
 
         {/* Prompt for LLM */}
         {gameState && playerId && (
-          <article>
+          <article className="card">
             <header>
               <strong>LLM Prompt</strong>
-              <button onClick={() => setShowPrompt(!showPrompt)} aria-expanded={showPrompt} style={{ float: 'right' }}>
+              <button className="button" data-variant="secondary" onClick={() => setShowPrompt(!showPrompt)} aria-expanded={showPrompt} style={{ float: 'right' }}>
                 {showPrompt ? 'Hide' : 'Show'}
               </button>
-              <button onClick={copyPrompt} aria-live="polite" style={{ float: 'right' }}>
+              <button className="button" onClick={copyPrompt} aria-live="polite" style={{ float: 'right' }}>
                 Copy
               </button>
             </header>
             {copyState !== 'idle' && (
-              <p role="status" className={copyState === 'copied' ? 'pill ok' : 'pill off'}>
-                {copyState === 'copied'
-                  ? 'Prompt copied to clipboard.'
-                  : 'Copy failed — clipboard unavailable. Use "Show" and select manually.'}
+              <p role="status">
+                <span className="badge" data-variant={copyState === 'copied' ? 'success' : 'danger'}>
+                  {copyState === 'copied'
+                    ? 'Prompt copied to clipboard.'
+                    : 'Copy failed — clipboard unavailable. Use "Show" and select manually.'}
+                </span>
               </p>
             )}
             {showPrompt && (
@@ -264,10 +266,10 @@ export default function Arena() {
 
       <aside>
         {/* Game Info */}
-        <article>
+        <article className="card">
           <header>
             <strong>Game Info</strong>{' '}
-            <span className={`pill ${wsConnected ? 'live' : 'off'}`} role="status">
+            <span className="badge" data-variant={wsConnected ? "success" : "danger"} role="status">
               {wsConnected ? '● Live' : '○ Disconnected'}
             </span>
           </header>
@@ -280,7 +282,7 @@ export default function Arena() {
               <p>Turn: <span style={{ textTransform: 'capitalize' }}>{gameState.turn}</span></p>
               {formatClock(gameState.clock.white, 'White Clock')}
               {formatClock(gameState.clock.black, 'Black Clock')}
-              {gameState.isCheck && <p className="pill warn">⚠ Check!</p>}
+              {gameState.isCheck && <p><span className="badge" data-variant="warning">⚠ Check</span></p>}
               {gameState.isCheckmate && <p><mark>⚑ Checkmate!</mark></p>}
               {gameState.isStalemate && <p><mark>Stalemate</mark></p>}
               {gameState.isDraw && <p><mark>Draw</mark></p>}
@@ -290,7 +292,7 @@ export default function Arena() {
 
         {/* Legal Moves */}
         {gameState?.legalMoves && (
-          <article>
+          <article className="card">
             <header><strong>Legal Moves ({gameState.legalMoves.length})</strong></header>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxHeight: '8rem', overflowY: 'auto' }}>
               {gameState.legalMoves.map((move, i) => (
@@ -301,7 +303,7 @@ export default function Arena() {
         )}
 
         {/* Moves */}
-        <article>
+        <article className="card">
           <header><strong>Moves ({moves.length})</strong></header>
           {moves.length === 0 ? (
             <p><small>No moves yet</small></p>
@@ -318,7 +320,7 @@ export default function Arena() {
 
         {/* WebSocket Events */}
         {wsEvents.length > 0 && (
-          <article>
+          <article className="card">
             <header><strong>Live Events ({wsEvents.length})</strong></header>
             <div className="scroll-y" style={{ maxHeight: '8rem' }}>
               {wsEvents.slice(-10).map((ev, idx) => (
@@ -334,7 +336,7 @@ export default function Arena() {
         )}
 
         {/* Connect */}
-        <article>
+        <article className="card">
           <header><strong>Connect to Match</strong></header>
           <label>
             Match ID
@@ -345,7 +347,7 @@ export default function Arena() {
               onChange={(evt) => setMatchId(evt.target.value)}
             />
           </label>
-          <button onClick={connectToMatch} disabled={loading} aria-busy={loading}>
+          <button className="button" onClick={connectToMatch} disabled={loading} aria-busy={loading}>
             {loading ? 'Connecting...' : 'Connect'}
           </button>
           {error && <p role="alert"><small>{error}</small></p>}

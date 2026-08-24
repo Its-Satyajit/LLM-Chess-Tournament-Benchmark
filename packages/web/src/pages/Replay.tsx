@@ -80,11 +80,11 @@ export default function Replay() {
 
   if (error) {
     return (
-      <article>
+      <article className="card">
         <p role="alert">{error}</p>
-        <button onClick={() => window.location.reload()}>Retry</button>{' '}
+        <button className="button" onClick={() => window.location.reload()}>Retry</button>{' '}
         <Link to="/admin">
-          <button className="outline">Create a new match</button>
+          <button className="button" data-variant="outline">Create a new match</button>
         </Link>
       </article>
     )
@@ -107,39 +107,41 @@ export default function Replay() {
           {fen ? <ChessBoard fen={fen} /> : <div className="board-empty"><span>♟️</span></div>}
 
           {/* Move Navigation */}
-          <article>
+          <article className="card">
             <header>
               <strong>Navigation</strong>{' '}
               <small style={{ float: 'right' }}>Move {currentMove} of {moves.length}</small>
             </header>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => setCurrentMove(0)} className="outline">⏮ Start</button>
+              <button className="button" onClick={() => setCurrentMove(0)} data-variant="outline">⏮ Start</button>
               <button
+                className="button"
                 onClick={() => setCurrentMove(Math.max(0, currentMove - 1))}
                 disabled={currentMove === 0}
                 aria-label="Previous move"
                 title={currentMove === 0 ? "Already at the start" : undefined}
-                className="outline"
+                data-variant="outline"
               >
                 ◀ Prev
               </button>
               <button
+                className="button"
                 onClick={() => setCurrentMove(Math.min(moves.length, currentMove + 1))}
                 disabled={currentMove === moves.length}
                 aria-label="Next move"
                 title={currentMove === moves.length ? "Already at the latest move" : undefined}
-                className="outline"
+                data-variant="outline"
               >
                 Next ▶
               </button>
-              <button onClick={() => setCurrentMove(moves.length)} className="outline">End ⏭</button>
+              <button className="button" onClick={() => setCurrentMove(moves.length)} data-variant="outline">End ⏭</button>
             </div>
           </article>
         </div>
 
         <aside>
           {/* Game Info */}
-          <article>
+          <article className="card">
             <h3>Game Info</h3>
             {gameState && (
               <>
@@ -159,7 +161,7 @@ export default function Replay() {
           </article>
 
           {/* Moves List */}
-          <article>
+          <article className="card">
             <h3>Moves ({moves.length})</h3>
             {moves.length === 0 ? (
               <p><small>No moves yet</small></p>

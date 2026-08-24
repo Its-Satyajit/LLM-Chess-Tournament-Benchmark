@@ -98,11 +98,11 @@ export default function Admin() {
     <>
       <h2>Admin Panel</h2>
       <div className="grid">
-        <article>
+        <article className="card">
           <h3>Models</h3>
           <form
             onSubmit={(e) => { e.preventDefault(); void addModel() }}
-            style={{ display: 'flex', gap: '0.5rem', alignItems: 'end' }}
+            style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}
           >
             <label>
               Model name
@@ -122,7 +122,7 @@ export default function Admin() {
                 onChange={(e) => setNewModel({ ...newModel, provider: e.target.value })}
               />
             </label>
-            <button type="submit" disabled={addingModel} aria-busy={addingModel}>
+            <button className="button" type="submit" disabled={addingModel} aria-busy={addingModel}>
               {addingModel ? 'Adding...' : 'Add'}
             </button>
           </form>
@@ -131,13 +131,13 @@ export default function Admin() {
           {modelsState === 'error' && (
             <>
               <p role="alert"><small>Failed to load models.</small></p>
-              <button onClick={loadModels}>Retry</button>
+              <button className="button" onClick={loadModels}>Retry</button>
             </>
           )}
           {modelsState === 'loaded' && models.length === 0 && (
             <p><small>No models yet — add one above to get started.</small></p>
           )}
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div style={{ display: "grid", gap: "0.5rem" }}>
             {models.map((m, i) => (
               <button
                 key={i}
@@ -145,17 +145,17 @@ export default function Admin() {
                 onClick={() => toggleModel(i)}
                 aria-pressed={selectedModels.includes(i)}
                 aria-label={`Select ${m.name} (${m.provider})`}
-                className="model-row outline contrast"
+                className="button model-row"
                 title={selectedModels.length >= 2 && !selectedModels.includes(i) ? 'Deselect a model first — max 2' : undefined}
               >
-                <span style={{ float: 'left' }}>{m.name}</span>
-                <span style={{ float: 'right' }}>{m.provider}</span>
+                <span style={{ float: "left" }}>{m.name}</span>
+                <span style={{ float: "right" }}>{m.provider}</span>
               </button>
             ))}
           </div>
         </article>
 
-        <article>
+        <article className="card">
           <h3>Create Match</h3>
           <p>
             <small>Select 2 models to compete in a 4-game match.</small>
@@ -163,16 +163,15 @@ export default function Admin() {
           <div id="selection-status" role="status">
             {selectedModels.length === 0 && <p><small>No models selected</small></p>}
             {selectedModels.length === 1 && (
-              <p><span className="pill warn">Select 1 more model</span></p>
+              <p><span className="badge" data-variant="warning">Select 1 more model</span></p>
             )}
             {selectedModels.length === 2 && (
-              <p><span className="pill ok">
+              <p><span className="badge" data-variant="success">
                 {models[selectedModels[0]].name} vs {models[selectedModels[1]].name}
               </span></p>
             )}
           </div>
-          <button
-            onClick={startMatch}
+          <button className="button" onClick={startMatch}
             disabled={selectedModels.length !== 2 || startingMatch}
             aria-describedby="selection-status"
             aria-busy={startingMatch}
@@ -180,8 +179,10 @@ export default function Admin() {
             {startingMatch ? 'Creating...' : 'Start Match'}
           </button>
           {matchResult && (
-            <p role="status" className={matchResult.ok ? 'pill ok' : 'pill off'} style={{ display: 'block', marginTop: '1rem', textAlign: 'center' }}>
-              {matchResult.text}
+            <p role="status" style={{ display: "block", marginTop: "1rem", textAlign: "center" }}>
+              <span className="badge" data-variant={matchResult.ok ? "success" : "danger"}>
+                {matchResult.text}
+              </span>
             </p>
           )}
         </article>

@@ -25,8 +25,7 @@ function App() {
           </ul>
         </div>
       </nav>
-      <main className="container">
-        <Routes>
+      <main className="container">        <Routes>
           <Route path="/" element={<Arena />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/replay/:matchId/:gameId" element={<Replay />} />

@@ -1,47 +1,25 @@
-@import "@picocss/pico/css/pico.min.css";
+@import "semantica/min";
 
-/* Arena theme tweaks on top of Pico */
-:root[data-theme="dark"],
-:root:not([data-theme="dark"]) {
-  --pico-font-family: system-ui, sans-serif;
+/* Arena theme on top of Semantica */
+:root {
+  --sui-accent: #3b82f6;
 }
 
-/* Fixed-position nav like the previous header */
 nav.arena-nav {
   position: sticky;
   top: 0;
   z-index: 10;
-  border-bottom: 1px solid var(--pico-muted-border-color);
+  border-bottom: 1px solid var(--sui-border);
+  background: var(--sui-surface);
 }
 
-nav.arena-nav ul li strong.brand {
-  font-size: 1.1rem;
-}
-
-/* Status pills (WS connection, model selection) */
-.pill {
-  display: inline-block;
-  padding: 0.15rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  border: 1px solid currentColor;
-}
-.pill.live { color: var(--pico-ins-color, #2e7d32); }
-.pill.off { color: var(--pico-del-color, #c62828); }
-.pill.ok { color: var(--pico-ins-color, #2e7d32); }
-.pill.warn { color: #b58a00; }
+/* Status pills map to Semantica badges; keep a plain fallback class */
+.pill { display: inline-block; }
 
 /* Clock urgency is not color-only: bold + label carries meaning too */
 .clock-low {
-  color: var(--pico-del-color, #c62828);
+  color: var(--sui-danger);
   font-weight: bold;
-}
-
-/* Selected model rows */
-button.model-row[aria-pressed="true"] {
-  background: var(--pico-primary-background);
-  color: var(--pico-primary-inverse);
-  border-color: var(--pico-primary-background);
 }
 
 /* Chessboard: responsive square grid of squares */
@@ -52,7 +30,7 @@ button.model-row[aria-pressed="true"] {
   width: 100%;
   max-width: min(100%, 32rem);
   margin-inline: auto;
-  border: 2px solid var(--pico-muted-border-color);
+  border: 2px solid var(--sui-border);
   user-select: none;
 }
 .chessboard .sq {
@@ -80,14 +58,14 @@ button.model-row[aria-pressed="true"] {
   all: unset;
   cursor: pointer;
   padding: 0.15rem 0.4rem;
-  border-radius: 4px;
+  border-radius: var(--sui-radius-sm);
   font-family: monospace;
   font-size: 0.85rem;
 }
-.move-btn:hover { background: var(--pico-muted-background); }
-.move-btn:focus-visible { outline: 2px solid var(--pico-primary-background); }
-.move-btn.current { background: var(--pico-primary-focus); font-weight: bold; }
-.move-btn.future { color: var(--pico-muted-color); }
+.move-btn:hover { background: var(--sui-surface); }
+.move-btn:focus-visible { outline: 2px solid var(--sui-accent); }
+.move-btn.current { background: var(--sui-accent); font-weight: bold; }
+.move-btn.future { color: var(--sui-text-muted); }
 
 /* Scrollable event/move panels */
 .scroll-y {
@@ -105,7 +83,7 @@ button.model-row[aria-pressed="true"] {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--pico-muted-background);
-  border-radius: var(--pico-border-radius);
+  background: var(--sui-surface);
+  border-radius: var(--sui-radius);
   text-align: center;
 }
