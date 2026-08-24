@@ -28,7 +28,7 @@ This document tells an agent what to build next. It does not repeat the spec —
 
 ### Step 3: Hide opponent clock
 
-**Status:** ✅ Done for ADR-005: unauthenticated requests see neither clock; players see only their own. Remaining nits (deferred): turn limiter is a sliding 60s window rather than per-turn reset; JWT secret still has a dev-only fallback (production now fails fast without JWT_SECRET).
+**Status:** ✅ Done for ADR-005: unauthenticated requests see neither clock; players see only their own. Turn limiter now resets per accepted move (Story 45); production fails fast without JWT_SECRET (dev fallback retained).
 
 **Done when:** `getGameState()` returns only the requesting player's clock, not both. The `clock` field shows `{ white: <white_seconds> }` or `{ black: <black_seconds> }` depending on which player requests.
 
@@ -169,10 +169,10 @@ These are explicitly out of scope per spec § Out of Scope:
 |-------|-------|--------|
 | 1. Security | 1-3 | ✅ Complete (auth wired, budgets enforced, clocks scoped) |
 | 2. Frontend Real-Time | 4-5 | ✅ Complete |
-| 3. Match Integrity | 6-8 | ✅ Complete (verify Step 7 clock attribution on GET_STATE per ADR-003) |
+| 3. Match Integrity | 6-8 | ✅ Complete (Step 7 ADR-003 attribution now covered by a conformance test) |
 | 4. Evaluation | 9-10 | ✅ Complete (Step 9 via material-swing heuristic) |
 | 5. Testing | 11-12 | ✅ Complete (127 tests pass: 125 server + 2 web) |
 | 6. Deployment | 13-14 | ✅ Complete (Docker e2e not executed during review) |
 | 7. UI Quality | 15-18 + bug | ✅ Complete (error states, a11y, nav, responsive board, WS reconnect, route fix) |
 
-**18 steps + 1 bug — all implemented. Remaining deferred items: engine-grade eval for Step 9 (current: material-swing heuristic, 300cp threshold), Docker e2e execution verification.**
+**18 steps + 1 bug — all implemented. Deferred remainder: true engine-grade eval (current: material + piece-square tables + mobility heuristic, 300cp threshold). Docker e2e: Dockerfile/compose repaired for the pnpm workspace and the production startup path verified end-to-end on the host (health 200 → create match → 401 enforcement → authenticated move → spectator clock hidden); full in-container run blocked by this sandbox having no container network access — re-verify with `docker compose up --build` on a networked machine.**

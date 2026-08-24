@@ -881,27 +881,52 @@ export class MatchEngine {
     }
   }
 
-  // Piece values in centipawns for the material heuristic
+  // Piece values in centipawns for the eval heuristic
   static readonly PIECE_CP = {
     p: 100, n: 320, b: 330, r: 500, q: 900, k: 0,
     P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0,
   } as const
 
-  private materialCp(chess: Chess): number {
+  // Simplified piece-square tables (white perspective, a8..h1 row-major to
+  // match chess.js board()); black mirrors by negating the table index.
+  // Values encourage centralisation and advancement per standard heuristics.
+  static readonly PST = {
+    p: [0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5, 5, 10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10, 0, 0, -10, -5, 5, 5, 10, 10, -20, -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+    n: [-50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15, 10, 0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15, 15, 10, 5, -30, -40, -20, 0, 5, 5, 0, -20, -40, -50, -40, -30, -30, -30, -30, -40, -50],
+    b: [-20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 10, 10, 5, 0, -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0, -10, -10, 10, 10, 10, 10, 10, 10, -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10, -10, -10, -10, -10, -10, -20],
+    r: [0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, 0, 0, 0, 5, 5, 0, 0, 0],
+    q: [-20, -10, -10, -5, -5, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 5, 5, 5, 0, -10, -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0, 5, 0, 0, 0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20],
+    k: [-30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40, -40, -30, -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0, 10, 30, 20],
+  } as const
+
+  // Static eval from white's perspective in centipawns:
+  // material + piece-square tables + mobility (10cp per legal move).
+  private evaluateCp(chess: Chess): number {
     let cp = 0
-    for (const row of chess.board()) {
-      for (const square of row) {
+    const board = chess.board()
+    for (let rank = 0; rank < 8; rank++) {
+      for (let file = 0; file < 8; file++) {
+        const square = board[rank][file]
         if (!square) continue
-        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PIECE_CP
-        const value = MatchEngine.PIECE_CP[square.type as keyof typeof MatchEngine.PIECE_CP] ?? 0
-        cp += square.color === 'w' ? value : -value
+        const type = square.type as keyof typeof MatchEngine.PIECE_CP
+        const material = MatchEngine.PIECE_CP[type] ?? 0
+        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PST
+        const table = MatchEngine.PST[square.type as keyof typeof MatchEngine.PST]
+        const index = square.color === 'w' ? rank * 8 + file : (7 - rank) * 8 + file
+        const positional = table ? table[index] : 0
+        const signed = material + positional
+        cp += square.color === 'w' ? signed : -signed
       }
     }
+    cp += 10 * Math.cbrt(chess.moves().length)
     return cp
   }
 
-  // Replay each game's move history with chess.js and score eval swings.
-  // A blunder is a move that drops the mover's material eval by >= 300cp.
+  // Replay each game's move history with chess.js and score eval swings using
+  // the static eval (material + piece-square tables + mobility).
+  // A blunder is attributed to a move when the eval (from the mover's
+  // perspective) drops by >= 300cp once the opponent has replied — this is
+  // what makes hanging material visible (e.g. Qxg6?? fxg6).
   // A tactical moment is a position where the mover had at least one capture;
   // a tactical blunder is a blunder committed in such a position.
   private analyseGames(match: Match): GameAnalysis {
@@ -911,31 +936,40 @@ export class MatchEngine {
 
     for (const game of match.games) {
       const history = game.chessGame.getGameState().history
-      if (history.length === 0) continue
+      if (history.length < 2) continue
 
       const replay = new Chess()
       const BLUNDER_CP = 300
 
-      for (const san of history) {
-        const mover: 'w' | 'b' = replay.turn()
-        const beforeCp = this.materialCp(replay)
-        const hadCapture = replay.moves({ verbose: true }).some(m => m.captured !== undefined)
+      // evals[i] = static eval (white perspective) before move i;
+      // hadCapture[i] = a capture was available to the mover of move i.
+      const movers: Array<'w' | 'b'> = []
+      const evals: number[] = []
+      const hadCapture: boolean[] = []
 
-        let applied
+      for (const san of history) {
+        movers.push(replay.turn())
+        evals.push(this.evaluateCp(replay))
+        hadCapture.push(replay.moves({ verbose: true }).some(m => m.captured !== undefined))
+
         try {
-          applied = replay.move(san)
+          if (!replay.move(san)) break
         } catch {
           break
         }
-        if (!applied) break
+      }
+      evals.push(this.evaluateCp(replay))
 
-        const afterCp = this.materialCp(replay)
-        const swing = mover === 'w' ? afterCp - beforeCp : beforeCp - afterCp
+      // Attribute each move's outcome over itself + the opponent's reply.
+      for (let i = 0; i < movers.length - 1; i++) {
+        const swing = movers[i] === 'w'
+          ? evals[i + 2] - evals[i]
+          : evals[i] - evals[i + 2]
         if (swing <= -BLUNDER_CP) {
           blunders++
-          if (hadCapture) tacticalBlunders++
+          if (hadCapture[i]) tacticalBlunders++
         }
-        if (hadCapture) tacticalMoves++
+        if (hadCapture[i]) tacticalMoves++
       }
     }
 
