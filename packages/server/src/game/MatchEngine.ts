@@ -908,6 +908,7 @@ export class MatchEngine {
       for (let file = 0; file < 8; file++) {
         const square = board[rank][file]
         if (!square) continue
+        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PIECE_CP
         const type = square.type as keyof typeof MatchEngine.PIECE_CP
         const material = MatchEngine.PIECE_CP[type] ?? 0
         // SAFETY: square.type is a chess.js PieceSymbol, always a key of PST
