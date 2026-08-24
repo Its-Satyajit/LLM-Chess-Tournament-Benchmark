@@ -63,9 +63,12 @@ export default function Arena() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [wsConnected, setWsConnected] = useState(false)
   const [wsEvents, setWsEvents] = useState<WsEvent[]>([])
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeMatchRef = useRef('')
   const gameIdRef = useRef('')
 
   const fetchGameState = useCallback(async (mId: string, gId: string) => {
@@ -126,7 +129,16 @@ export default function Arena() {
 
     ws.onmessage = (event) => handleWsMessage(event, mId)
 
-    ws.onclose = () => setWsConnected(false)
+    ws.onclose = () => {
+      setWsConnected(false)
+      // Auto-reconnect while a match is active
+      if (activeMatchRef.current === mId && !reconnectTimerRef.current) {
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null
+          connectWebSocket(mId)
+        }, WS_RECONNECT_MS)
+      }
+    }
     ws.onerror = () => setWsConnected(false)
   }, [handleWsMessage])
 
@@ -143,7 +155,7 @@ export default function Arena() {
       const match = await getMatch(matchId)
       if (match.error) {
         // SAFETY: error is a string from the API
-        setError(match.error as string)
+        setError(`${String(match.error)} — double-check the match ID`)
         setLoading(false)
         return
       }
@@ -153,6 +165,7 @@ export default function Arena() {
       // Get the current active game
       const activeGame = match.games.find(g => g.status === 'active') || match.games[0]
       if (activeGame) {
+        activeMatchRef.current = matchId
         gameIdRef.current = activeGame.id
         setPlayerId(match.playerAId || '')
         setPlayerColor(activeGame.whitePlayerId === match.playerAId ? 'white' : 'black')
@@ -162,14 +175,26 @@ export default function Arena() {
         connectWebSocket(matchId)
       }
     } catch {
-      setError('Failed to connect to match')
+      setError('Failed to connect to match — is the server running? Check the ID and retry.')
     }
 
     setLoading(false)
   }
 
-  // Cleanup WebSocket on unmount
-  useEffect(() => () => wsRef.current?.close(), [])
+  // Cleanup WebSocket + reconnect timer on unmount
+  useEffect(() => () => {
+    activeMatchRef.current = ''
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+    }
+    wsRef.current?.close()
+  }, [])
+
+  useEffect(() => {
+    if (!copyState || copyState === 'idle') return
+    const t = setTimeout(() => setCopyState('idle'), 2000)
+    return () => clearTimeout(t)
+  }, [copyState])
 
   const getPrompt = () =>
     PROMPT_TEMPLATE
@@ -177,9 +202,26 @@ export default function Arena() {
       .replace('{COLOR}', playerColor)
       .replace('{TIME_CONTROL}', timeControl)
 
-  const copyPrompt = () => {
-    navigator.clipboard.writeText(getPrompt())
-    alert('Prompt copied to clipboard!')
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(getPrompt())
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+  }
+
+  const formatClock = (seconds: number | undefined, label: string) => {
+    if (seconds === undefined) return null
+    const low = seconds <= 30
+    return (
+      <p className="text-gray-400">
+        {label}:{' '}
+        <span className={low ? 'text-red-400 font-bold' : 'text-white'}>
+          {seconds}s{low ? ' — LOW TIME' : ''}
+        </span>
+      </p>
+    )
   }
 
   return (
@@ -189,7 +231,7 @@ export default function Arena() {
         <div className="bg-gray-800 rounded-lg p-4">
           {gameState ? (
             <div className="flex justify-center">
-              <ChessBoard fen={gameState.fen} size={400} />
+              <ChessBoard fen={gameState.fen} />
             </div>
           ) : (
             <div className="aspect-square max-w-lg mx-auto bg-gray-700 rounded flex items-center justify-center">
@@ -210,18 +252,25 @@ export default function Arena() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowPrompt(!showPrompt)}
-                  className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
+                  aria-expanded={showPrompt}
+                  className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
                 >
                   {showPrompt ? 'Hide' : 'Show'}
                 </button>
                 <button
                   onClick={copyPrompt}
-                  className="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded"
+                  aria-live="polite"
+                  className="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
                 >
                   Copy
                 </button>
               </div>
             </div>
+            {copyState !== 'idle' && (
+              <p role="status" className={`mb-2 text-sm ${copyState === 'copied' ? 'text-green-400' : 'text-red-400'}`}>
+                {copyState === 'copied' ? 'Prompt copied to clipboard.' : 'Copy failed — clipboard unavailable. Use "Show" and select manually.'}
+              </p>
+            )}
             {showPrompt && (
               <pre className="bg-gray-900 p-4 rounded text-sm overflow-auto max-h-64 font-mono whitespace-pre-wrap">
                 {getPrompt()}
@@ -241,25 +290,28 @@ export default function Arena() {
         <div className="bg-gray-800 rounded-lg p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold">Game Info</h2>
-            <span className={`text-xs px-2 py-1 rounded ${wsConnected ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}`}>
+            <span
+              className={`text-xs px-2 py-1 rounded ${
+                wsConnected ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'
+              }`}
+            >
               {wsConnected ? '🟢 Live' : '🔴 Disconnected'}
             </span>
           </div>
+          {!wsConnected && gameState && (
+            <p className="text-xs text-gray-400 mb-2">Reconnecting automatically every {WS_RECONNECT_MS / 1000}s...</p>
+          )}
           <div className="space-y-1 text-sm">
             <p className="text-gray-400">Status: <span className="text-white">{status}</span></p>
             {gameState && (
               <>
                 <p className="text-gray-400">Turn: <span className="text-white capitalize">{gameState.turn}</span></p>
-                {gameState.clock.white !== undefined && (
-                  <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
-                )}
-                {gameState.clock.black !== undefined && (
-                  <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
-                )}
-                {gameState.isCheck && <p className="text-red-400">Check!</p>}
-                {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
-                {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}
-                {gameState.isDraw && <p className="text-yellow-400">Draw</p>}
+                {formatClock(gameState.clock.white, 'White Clock')}
+                {formatClock(gameState.clock.black, 'Black Clock')}
+                {gameState.isCheck && <p className="text-red-400 font-semibold">⚠ Check!</p>}
+                {gameState.isCheckmate && <p className="text-red-400 font-bold">⚑ Checkmate!</p>}
+                {gameState.isStalemate && <p className="text-yellow-400 font-semibold">Stalemate</p>}
+                {gameState.isDraw && <p className="text-yellow-400 font-semibold">Draw</p>}
               </>
             )}
           </div>
@@ -321,16 +373,20 @@ export default function Arena() {
             placeholder="Match ID (e.g., MATCH-1787585865651-702F59)"
             value={matchId}
             onChange={(evt) => setMatchId(evt.target.value)}
-            className="w-full bg-gray-700 rounded px-3 py-2 text-sm mb-2"
+            className="w-full bg-gray-700 rounded px-3 py-2 text-sm mb-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
           />
           <button
             onClick={connectToMatch}
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded px-3 py-2"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:text-gray-400 rounded px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
           >
             {loading ? 'Connecting...' : 'Connect'}
           </button>
-          {error && <p className="mt-2 text-red-400 text-sm">{error}</p>}
+          {error && (
+            <p className="mt-2 text-red-400 text-sm">
+              {error}
+            </p>
+          )}
         </div>
       </div>
     </div>

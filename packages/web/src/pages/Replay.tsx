@@ -1,10 +1,11 @@
-// @ts-expect-error lint requires React import
-import React from "react"
 import { useState, useEffect, useMemo } from "react"
-import { useParams } from "react-router-dom"
+import { Link, useParams } from "react-router-dom"
 import { Chess } from "chess.js"
 import { getGameState, getMatch, type GameState } from "../lib/api"
+import type { Match } from "../lib/api"
 import ChessBoard from "../components/ChessBoard"
+
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 export default function Replay() {
   const { gameId, matchId } = useParams()
@@ -13,16 +14,14 @@ export default function Replay() {
   const [currentMove, setCurrentMove] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [matchInfo, setMatchInfo] = useState<{
-    games?: { id: string; gameNumber: number; status: string; result: unknown }[]
-  } | null>(null)
+  const [matchInfo, setMatchInfo] = useState<Match | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       if (!matchId || !gameId) {
         if (!cancelled) {
-          setError("Missing matchId or gameId in URL")
+          setError("Missing matchId or gameId in URL — expected /replay/:matchId/:gameId")
           setLoading(false)
         }
         return
@@ -39,10 +38,11 @@ export default function Replay() {
           setGameState(state)
           setMoves(state.history)
           setCurrentMove(state.history.length)
+          setLoading(false)
         }
       } catch {
         if (!cancelled) {
-          setError("Failed to load game data")
+          setError("Failed to load game data. Check the match ID and try again.")
           setLoading(false)
         }
       }
@@ -54,7 +54,7 @@ export default function Replay() {
 
   // Build FEN history by replaying moves from initial position
   const fenHistory = useMemo(() => {
-    if (moves.length === 0) return ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"]
+    if (moves.length === 0) return [START_FEN]
 
     const chess = new Chess()
     const fens: string[] = [chess.fen()]
@@ -85,8 +85,17 @@ export default function Replay() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
         <div className="text-red-400 text-lg">{error}</div>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
+        >
+          Retry
+        </button>
+        <Link to="/admin" className="text-blue-400 hover:text-blue-300 text-sm">
+          Create a new match in Admin
+        </Link>
       </div>
     )
   }
@@ -108,7 +117,7 @@ export default function Replay() {
           <div className="bg-gray-800 rounded-lg p-4">
             <div className="flex justify-center">
               {fen ? (
-                <ChessBoard fen={fen} size={400} />
+                <ChessBoard fen={fen} />
               ) : (
                 <div className="aspect-square max-w-lg bg-gray-700 rounded flex items-center justify-center">
                   <span className="text-6xl">♟️</span>
@@ -128,27 +137,31 @@ export default function Replay() {
             <div className="flex gap-2 justify-center">
               <button
                 onClick={() => setCurrentMove(0)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
               >
                 ⏮ Start
               </button>
               <button
                 onClick={() => setCurrentMove(Math.max(0, currentMove - 1))}
                 disabled={currentMove === 0}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm"
+                aria-label="Previous move"
+                title={currentMove === 0 ? "Already at the start" : undefined}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
               >
                 ◀ Prev
               </button>
               <button
                 onClick={() => setCurrentMove(Math.min(moves.length, currentMove + 1))}
                 disabled={currentMove === moves.length}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm"
+                aria-label="Next move"
+                title={currentMove === moves.length ? "Already at the latest move" : undefined}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
               >
                 Next ▶
               </button>
               <button
                 onClick={() => setCurrentMove(moves.length)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
               >
                 End ⏭
               </button>
@@ -166,12 +179,12 @@ export default function Replay() {
                   <p className="text-gray-400">
                     Turn: <span className="text-white capitalize">{gameState.turn}</span>
                   </p>
-                  <p className="text-gray-400">
-                    White Clock: <span className="text-white">{gameState.clock.white}s</span>
-                  </p>
-                  <p className="text-gray-400">
-                    Black Clock: <span className="text-white">{gameState.clock.black}s</span>
-                  </p>
+                  {gameState.clock.white !== undefined && (
+                    <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
+                  )}
+                  {gameState.clock.black !== undefined && (
+                    <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
+                  )}
                   {gameState.isCheck && <p className="text-red-400">Check!</p>}
                   {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
                   {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}
@@ -190,22 +203,24 @@ export default function Replay() {
               ) : (
                 <div className="grid grid-cols-2 gap-1">
                   {moves.map((move, idx) => (
-                    <div
+                    <button
                       key={`${gameId}-move-${idx}`}
-                      className={`cursor-pointer px-2 py-1 rounded hover:bg-gray-700 ${
+                      className={`text-left cursor-pointer px-2 py-1 rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 ${
                         idx === currentMove - 1
-                          ? "bg-blue-900 text-blue-200"
+                          ? "bg-blue-900 text-blue-200 font-semibold underline underline-offset-2"
                           : idx < currentMove
                             ? "text-white"
                             : "text-gray-600"
                       }`}
                       onClick={() => setCurrentMove(idx + 1)}
+                      aria-label={`Jump to move ${idx + 1}: ${move}`}
+                      aria-current={idx === currentMove - 1 ? "true" : undefined}
                     >
                       <span className="text-gray-500 w-8 inline-block">
                         {Math.floor(idx / 2) + 1}.
                       </span>
                       {move}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
