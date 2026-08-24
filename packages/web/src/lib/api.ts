@@ -1,3 +1,5 @@
+import type { ModelConfig } from '@llm-chess-arena/shared'
+
 const API_BASE = '/api'
 
 export interface Match {
@@ -41,7 +43,7 @@ export interface Rating {
   points: number
 }
 
-export async function createMatch(playerAModel: unknown, playerBModel: unknown): Promise<{ matchId: string; playerAId: string; playerBId: string; games: { id: string }[] }> {
+export async function createMatch(playerAModel: ModelConfig, playerBModel: ModelConfig): Promise<{ matchId: string; playerAId: string; playerBId: string; games: { id: string }[] }> {
   const res = await fetch(`${API_BASE}/match/create`, {
     body: JSON.stringify({ playerAModel, playerBModel, timeControl: '10+5', startingPosition: 'standard', boardMode: 'assisted' }),
     headers: { 'Content-Type': 'application/json' },

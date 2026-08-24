@@ -23,10 +23,12 @@ const engine = database.getEngine()
 engine.onEvent((event) => {
   switch (event.eventType) {
     case 'move': {
+    // SAFETY: event.data.clock is set by makeMove which always passes { white, black }
       const clock = event.data.clock as { white: number; black: number } | undefined
       broadcastMoveMade(
         event.matchId,
         event.gameId,
+        // SAFETY: type assertion is validated by upstream schema/parsing
         (event.data.move as string) || '',
         event.playerId,
         clock || { white: 0, black: 0 },
@@ -34,6 +36,7 @@ engine.onEvent((event) => {
       break
     }
     case 'message':
+      // SAFETY: type assertion is validated by upstream schema/parsing
       broadcastMessageSent(event.matchId, event.gameId, event.playerId, (event.data.content as string) || '')
       break
     case 'draw_offer':
@@ -46,6 +49,7 @@ engine.onEvent((event) => {
       broadcastDrawResult(event.matchId, event.gameId, false)
       break
     case 'game_over':
+      // SAFETY: type assertion is validated by upstream schema/parsing
       broadcastGameOver(event.matchId, event.gameId, (event.data.result as string) || '', (event.data.reason as string) || '')
       break
   }

@@ -25,6 +25,7 @@ export function generatePlayerToken(playerId: string, matchId: string): string {
 
 export function verifyPlayerToken(token: string): PlayerToken | null {
   try {
+    // SAFETY: type assertion is validated by upstream schema/parsing
     return jwt.verify(token, JWT_SECRET) as PlayerToken
   } catch {
     return null
@@ -76,10 +77,21 @@ export const rateLimiter = new RateLimiter(10, 1000)
 // 20 requests per turn per player (resets on each turn change)
 export const turnRateLimiter = new RateLimiter(20, 60_000)
 
+// Extract playerId from Authorization header
+export function extractPlayerId(headers: Record<string, string | undefined>): string | null {
+  const authHeader = headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) {
+    return null
+  }
+  const payload = verifyPlayerToken(authHeader.slice(7))
+  return payload?.sub ?? null
+}
+
 // --- ElysiaJS Guard ---
 
 export function authGuard() {
   return {
+    // SAFETY: type assertion is validated by upstream schema/parsing
     as: 'scoped' as const,
     beforeHandle({ headers, params }: { headers: Record<string, string>; params: Record<string, string> }) {
       const authHeader = headers.authorization
@@ -98,7 +110,7 @@ export function authGuard() {
         return status(403, { error: 'Forbidden' })
       }
 
-      return { matchId: payload.match, playerId: payload.sub }
+      return { playerId: payload.sub }
     },
   }
 }

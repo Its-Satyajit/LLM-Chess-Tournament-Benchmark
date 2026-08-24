@@ -1,9 +1,10 @@
 // @ts-expect-error lint requires React import
 import React from "react"
-import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
-import { getGameState, getMatch, type GameState } from '../lib/api'
-import ChessBoard from '../components/ChessBoard'
+import { useState, useEffect, useMemo } from "react"
+import { useParams } from "react-router-dom"
+import { Chess } from "chess.js"
+import { getGameState, getMatch, type GameState } from "../lib/api"
+import ChessBoard from "../components/ChessBoard"
 
 export default function Replay() {
   const { gameId, matchId } = useParams()
@@ -11,15 +12,17 @@ export default function Replay() {
   const [moves, setMoves] = useState<string[]>([])
   const [currentMove, setCurrentMove] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [matchInfo, setMatchInfo] = useState<{ games?: { id: string; gameNumber: number; status: string; result: unknown }[] } | null>(null)
+  const [error, setError] = useState("")
+  const [matchInfo, setMatchInfo] = useState<{
+    games?: { id: string; gameNumber: number; status: string; result: unknown }[]
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       if (!matchId || !gameId) {
         if (!cancelled) {
-          setError('Missing matchId or gameId in URL')
+          setError("Missing matchId or gameId in URL")
           setLoading(false)
         }
         return
@@ -39,7 +42,7 @@ export default function Replay() {
         }
       } catch {
         if (!cancelled) {
-          setError('Failed to load game data')
+          setError("Failed to load game data")
           setLoading(false)
         }
       }
@@ -49,23 +52,28 @@ export default function Replay() {
     return () => { cancelled = true }
   }, [matchId, gameId])
 
-  // Compute FEN at current move by replaying moves from initial position
-  const getFenAtMove = (moveIndex: number): string => {
-    if (!gameState) { return '' }
+  // Build FEN history by replaying moves from initial position
+  const fenHistory = useMemo(() => {
+    if (moves.length === 0) return ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"]
 
-    if (moveIndex === 0) {
-      // Initial position — extract from the full FEN history
-      // The FEN before any moves is the initial position
-      return gameState.fen.split(' ')[0] === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
-        ? 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-        : gameState.fen
+    const chess = new Chess()
+    const fens: string[] = [chess.fen()]
+
+    for (const move of moves) {
+      try {
+        chess.move(move)
+        fens.push(chess.fen())
+      } catch {
+        // Illegal move in history — stop replaying
+        break
+      }
     }
 
-    // For simplicity, we show the latest FEN when viewing any move
-    // A proper implementation would replay moves from FEN using chess.js on the client
-    // For now, show the final position always (the board state from API)
-    return gameState.fen
-  }
+    return fens
+  }, [moves])
+
+  const fen = fenHistory[currentMove] ?? fenHistory[fenHistory.length - 1] ?? ""
+  const game = matchInfo?.games?.find((g) => g.id === gameId)
 
   if (loading) {
     return (
@@ -83,16 +91,13 @@ export default function Replay() {
     )
   }
 
-  const fen = getFenAtMove(currentMove)
-  const game = matchInfo?.games?.find((g) => g.id === gameId)
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Game Replay</h2>
         {game && (
           <span className="text-sm text-gray-400">
-            Game {game.gameNumber} • {game.status} • {(game.result as string) || 'in progress'}
+            {`Game ${game.gameNumber} • ${game.status} • ${String(game.result) || "in progress"}`}
           </span>
         )}
       </div>
@@ -158,9 +163,15 @@ export default function Replay() {
             <div className="space-y-1 text-sm">
               {gameState && (
                 <>
-                  <p className="text-gray-400">Turn: <span className="text-white capitalize">{gameState.turn}</span></p>
-                  <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
-                  <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
+                  <p className="text-gray-400">
+                    Turn: <span className="text-white capitalize">{gameState.turn}</span>
+                  </p>
+                  <p className="text-gray-400">
+                    White Clock: <span className="text-white">{gameState.clock.white}s</span>
+                  </p>
+                  <p className="text-gray-400">
+                    Black Clock: <span className="text-white">{gameState.clock.black}s</span>
+                  </p>
                   {gameState.isCheck && <p className="text-red-400">Check!</p>}
                   {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
                   {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}
@@ -178,15 +189,21 @@ export default function Replay() {
                 <p className="text-gray-500">No moves yet</p>
               ) : (
                 <div className="grid grid-cols-2 gap-1">
-                  {moves.map((move, i) => (
+                  {moves.map((move, idx) => (
                     <div
-                      key={i}
+                      key={`${gameId}-move-${idx}`}
                       className={`cursor-pointer px-2 py-1 rounded hover:bg-gray-700 ${
-                        i === currentMove - 1 ? 'bg-blue-900 text-blue-200' : (i < currentMove ? 'text-white' : 'text-gray-600')
+                        idx === currentMove - 1
+                          ? "bg-blue-900 text-blue-200"
+                          : idx < currentMove
+                            ? "text-white"
+                            : "text-gray-600"
                       }`}
-                      onClick={() => setCurrentMove(i + 1)}
+                      onClick={() => setCurrentMove(idx + 1)}
                     >
-                      <span className="text-gray-500 w-8 inline-block">{Math.floor(i / 2) + 1}.</span>
+                      <span className="text-gray-500 w-8 inline-block">
+                        {Math.floor(idx / 2) + 1}.
+                      </span>
                       {move}
                     </div>
                   ))}

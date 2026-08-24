@@ -1,48 +1,28 @@
 import { Elysia } from 'elysia'
-import { TournamentManager } from '../tournament'
-import { engine } from './match'
+import { DatabaseService } from '../services/database'
 
-const tournamentManager = new TournamentManager(engine),
+const database = new DatabaseService(),
 
  ratingsRoutes = new Elysia({ prefix: '/api/ratings' })
-  .get('/', () => {
-    const tournaments = tournamentManager.listTournaments(),
-     modelRatings = new Map<string, {
-      model: string
-      provider: string
-      rating: number
-      rd: number
-      wins: number
-      draws: number
-      losses: number
-      points: number
-    }>()
-
-    for (const tournament of tournaments) {
-      const standings = tournamentManager.getStandings(tournament.id)
-      for (const standing of standings) {
-        const key = `${standing.provider}/${standing.model}`,
-         existing = modelRatings.get(key)
-        if (!existing) {
-          modelRatings.set(key, { ...standing })
-        } else {
-          existing.rating = Math.max(existing.rating, standing.rating)
-          existing.wins += standing.wins
-          existing.draws += standing.draws
-          existing.losses += standing.losses
-          existing.points += standing.points
-        }
-      }
-    }
-
-    return { ratings: [...modelRatings.values()].sort((a, b) => b.points - a.points) }
+  .get('/', async () => {
+    // Read from SQLite database per spec Story 56
+    const dbRatings = await database.getAllRatings()
+    const ratings = dbRatings.map(r => ({
+      draws: 0,
+      losses: 0,
+      model: r.model,
+      points: r.gamesPlayed,
+      provider: r.provider,
+      rating: r.rating,
+      wins: 0,
+    }))
+    return { ratings: ratings.sort((a, b) => b.rating - a.rating) }
   })
-  .get('/:model', ({ params }) => {
-    const tournaments = tournamentManager.listTournaments()
-    for (const tournament of tournaments) {
-      const standings = tournamentManager.getStandings(tournament.id),
-       found = standings.find(s => s.model === params.model)
-      if (found) {return found}
+  .get('/:model', async ({ params }) => {
+    const dbRatings = await database.getAllRatings()
+    const found = dbRatings.find(r => r.model === params.model)
+    if (found) {
+      return { draws: 0, losses: 0, model: found.model, points: found.gamesPlayed, provider: found.provider, rating: found.rating, wins: 0 }
     }
     return { error: 'Model not found' }
   })

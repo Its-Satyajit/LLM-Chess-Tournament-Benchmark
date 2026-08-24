@@ -7,10 +7,10 @@ interface ChessBoardProps {
   size?: number
 }
 
-const PIECE_UNICODE: Record<string, string> = {
+const PIECE_UNICODE = {
   'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
   'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟',
-}
+} satisfies Record<string, string>
 
 export default function ChessBoard({ fen, size = 400 }: ChessBoardProps) {
   const board = useMemo(() => {
@@ -35,6 +35,9 @@ export default function ChessBoard({ fen, size = 400 }: ChessBoardProps) {
 
   const squareSize = size / 8
 
+  // SAFETY: piece is always a valid chess piece character from FEN parsing
+  const getPieceUnicode = (piece: string) => PIECE_UNICODE[piece as keyof typeof PIECE_UNICODE]
+
   return (
     <div 
       className="border-2 border-gray-600 inline-block"
@@ -55,7 +58,7 @@ export default function ChessBoard({ fen, size = 400 }: ChessBoardProps) {
                     className={`${piece === piece.toUpperCase() ? 'text-white' : 'text-gray-900'}`}
                     style={{ fontSize: squareSize * 0.8 }}
                   >
-                    {PIECE_UNICODE[piece]}
+                    {getPieceUnicode(piece)}
                   </span>
                 )}
               </div>

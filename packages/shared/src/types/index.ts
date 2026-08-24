@@ -19,6 +19,9 @@ export interface Game {
   gameNumber: number;
   whitePlayerId: string;
   blackPlayerId: string;
+  // Story 33: Fresh IDs per game for prompt display
+  displayPlayerAId?: string;
+  displayPlayerBId?: string;
   status: GameStatus;
   result: GameResult | null;
   resultReason: string | null;
@@ -34,7 +37,7 @@ export interface Event {
   gameId: string;
   eventType: EventType;
   playerId: string;
-  data: Record<string, unknown>;
+  data: EventData;
   timestamp: Date;
   gameMove: number | null;
   clockWhite: number | null;
@@ -137,5 +140,33 @@ export type EventType =
   | "resign"
   | "illegal_move"
   | "error";
+
+export interface EventData {
+  accepted?: boolean
+  clock?: { white: number; black: number }
+  content?: string
+  detail?: string
+  error?: string
+  fen?: string
+  from?: string
+  gameId?: string
+  insufficientMaterial?: boolean
+  loser?: string
+  matchId?: string
+  move?: string
+  messageId?: string
+  player?: string
+  playerAId?: string
+  playerBId?: string
+  reason?: string
+  result?: string
+  sender?: string
+  startingPosition?: string
+  timeControl?: string
+  turn?: string
+  type?: string
+  winner?: string
+}
+
 export type TournamentFormat = "round_robin" | "swiss" | "knockout";
 export type TournamentStatus = "pending" | "active" | "completed";

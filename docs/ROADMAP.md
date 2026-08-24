@@ -1,348 +1,145 @@
-# LLM Chess Arena — Development Roadmap
+# LLM Chess Arena — Roadmap
 
-## Overview
+This document tells an agent what to build next. It does not repeat the spec — it points at `docs/spec.md` and `docs/ADR-*.md` for requirements. Each milestone has **steps** with **completion criteria**: a checkable condition that means "done."
 
-This roadmap is based on the technical spec (`docs/spec.md`) and tracks implementation progress against the 70 user stories.
+**Current state:** Core match flow works. 121 tests pass (10 unit test files + 1 integration test file + 2 web tests). TypeScript clean. Lint clean (non-test). ~85% of spec stories implemented. All 6 phases complete.
 
-**Current Status:** MVP (Minimum Viable Product) — Core match flow working, but missing persistence, real-time, and many spec requirements.
-
----
-
-## Milestone 1: Data Persistence ✅
-**Goal:** All game state persists to database, survives restarts
-
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Store matches in SQLite | — | ✅ |
-| Store games in SQLite | — | ✅ |
-| Store events in SQLite | — | ✅ |
-| Store ratings in SQLite | — | ✅ |
-| Load state from DB on startup | — | ✅ |
-| DB migrations working | — | ✅ |
-
-**Acceptance Criteria:**
-- [ ] Create match → restart server → match still exists
-- [ ] Make moves → restart → moves preserved
-- [ ] Events queryable from database
-- [ ] Ratings persist across restarts
+**Blocking gaps (fixed):** ✅ JWT auth wired ✅ Budget tracking wired ✅ Opponent clock hidden
 
 ---
 
-## Milestone 2: Time Control & Clock ⏱️ ✅
-**Goal:** Proper chess clock with timeout handling
+## Phase 1: Security (unblocks real usage)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Clock runs during LLM thinking | 29 | ✅ |
-| Flag fall = loss | 30 | ✅ |
-| Insufficient material = draw on timeout | 30 | ✅ |
-| Clock pauses only for server errors | 43 | ✅ |
-| 30-second reset between games | 32 | ✅ |
-| Custom time control presets | 28 | ✅ |
+### Step 1: Wire JWT auth into routes
 
-**Acceptance Criteria:**
-- [x] Clock counts down during turn
-- [x] Timeout results in loss (or draw if insufficient material)
-- [x] 30-second pause between games in match
-- [x] Blitz/Rapid/Classical presets available
+**Done when:** Every `POST /api/match/:id/*` endpoint rejects requests without a valid `Authorization: Bearer <token>` header. Invalid token → 401. Wrong match token → 403. The `x-player-id` header is no longer accepted.
 
----
+**Spec:** Stories 44, 46, 47. ADR-016.
 
-## Milestone 3: Token & API Limits 📊 ✅
-**Goal:** Enforce resource budgets per spec
+### Step 2: Wire budget tracking into all API handlers
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Track tokens per move | 34 | ✅ |
-| Track tokens per game | 35 | ✅ |
-| Track API calls per turn | 36 | ✅ |
-| Track API calls per game | 37 | ✅ |
-| Enforce hard limits | 34-37 | ✅ |
-| Forfeit on limit exceeded | 34-37 | ✅ |
+**Done when:** `trackApiCall()` is called in GET_STATE, SEND_MESSAGE, DRAW_OFFER, RESIGN handlers — not just MAKE_MOVE. `trackTokens()` is called in MAKE_MOVE. Budget exceed → game forfeit with `api_limit` or `token_limit` reason.
 
-**Acceptance Criteria:**
-- [ ] Token count tracked from LLM responses
-- [ ] API calls counted per turn
-- [ ] Game forfeited when limits exceeded
-- [ ] Limits configurable per tournament
+**Spec:** Stories 34-37. ADR-004.
+
+### Step 3: Hide opponent clock
+
+**Done when:** `getGameState()` returns only the requesting player's clock, not both. The `clock` field shows `{ white: <white_seconds> }` or `{ black: <black_seconds> }` depending on which player requests.
+
+**Spec:** Story 39. ADR-005 visibility matrix.
 
 ---
 
-## Milestone 4: Real-Time WebSocket 🔴 ✅
-**Goal:** Live updates via WebSocket instead of polling
+## Phase 2: Frontend Real-Time (unblocks live spectating)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| WebSocket server working | 54 | ✅ |
-| Subscribe/unsubscribe to matches | — | ✅ |
-| Broadcast state_update events | 54 | ✅ |
-| Broadcast move_made events | 55 | ✅ |
-| Broadcast message_sent events | 55 | ✅ |
-| Broadcast game_over events | — | ✅ |
-| Frontend uses WebSocket | 54-55 | ✅ |
+### Step 4: Connect Arena to WebSocket ✅
 
-**Acceptance Criteria:**
-- [ ] Client connects via WebSocket
-- [ ] Board updates in real-time without polling
-- [ ] Messages appear instantly
-- [ ] Game end detected immediately
+**Done when:** Arena page opens a WS connection on match load, subscribes to the match, and receives `move_made` / `message_sent` / `game_over` events. The 1-second polling `setInterval` is removed. The WS status indicator shows "Live" when connected.
+
+**Spec:** Stories 54-55.
+
+### Step 5: Replay page FEN reconstruction ✅
+
+**Done when:** Replay page reconstructs the board position at each move by replaying the move list from the initial FEN. Clicking move N shows the position after move N, not the final position.
+
+**Spec:** Story 57.
 
 ---
 
-## Milestone 5: Security & Auth 🔐 ✅
-**Goal:** JWT auth enforced on all player endpoints
+## Phase 3: Match Integrity (unblocks fair play)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| JWT tokens generated on match create | 44 | ✅ |
-| Rate limiting enforced (10/sec + 20/turn) | 45 | ✅ |
-| Request validation on all endpoints | 46 | ✅ |
-| Player ID never exposed to opponent | 47 | ✅ |
-| Cross-match access prevented | 44 | ✅ |
+### Step 6: Fresh player IDs per game ✅ ✅
 
-**Acceptance Criteria:**
-- [ ] All player endpoints require Bearer token
-- [ ] Rate limit: 10 req/sec, 20 req/turn
-- [ ] Invalid token → 401
-- [ ] Wrong match token → 403
+**Done when:** Each of the 4 games in a match gets its own `playerAId` / `playerBId` pair. Game 1 IDs ≠ Game 2 IDs. The prompt shows the game-specific ID.
 
----
+**Spec:** Story 33.
 
-## Milestone 6: Communication Enhancements 💬 ✅
-**Goal:** Full communication system per spec
+### Step 7: Clock runs during API processing ✅
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Messages when not your turn | 16 | ✅ |
-| Immediate delivery | 17 | ✅ |
-| Bluffing allowed | 18 | ✅ |
-| Communication optional | 19 | ✅ |
-| Draw offer cooldown (10 moves) | 25 | ✅ |
-| Draw offer reject with cooldown | 24 | ✅ |
+**Done when:** The clock deducts time between the API request arriving and the response being sent — not just during `makeMove`. This means wrapping each player-facing endpoint in a clock start/stop.
 
-**Acceptance Criteria:**
-- [ ] Player can message on opponent's turn
-- [ ] Rejected draw offer → 10-move cooldown
-- [ ] Draw offers tracked separately from messages
+**Spec:** Story 29. ADR-003.
+
+### Step 8: Complete match manifest ✅
+
+**Done when:** `GET /api/match/:id/manifest` returns all fields from the spec: `manifest_version`, `benchmark_version`, `chess960_seed`, `prompt.version`, `prompt.template_hash`, `rules.*`, `seeds.*`, `environment.*`. Missing fields → 500.
+
+**Spec:** Story 59. ADR-015.
 
 ---
 
-## Milestone 7: Tournament Features 🏆 ✅
-**Goal:** Complete tournament system
+## Phase 4: Evaluation (unlocks diagnostic metrics)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Round Robin pairing | 48 | ✅ |
-| Tournament standings | — | ✅ |
-| Tournament ratings persist | 49 | ✅ |
-| Provisional ratings (1500) | 50 | ✅ |
-| Multi-dimensional metrics | 53 | ✅ |
-| Diagnostic metrics | 52 | ✅ |
-| Tournament API endpoints | — | ✅ |
-| Tournament UI | — | ✅ |
+### Step 9: Compute missing metrics ✅
 
-**Acceptance Criteria:**
-- [ ] Full round-robin tournament runs
-- [ ] Standings calculated correctly
-- [ ] Ratings persist in database
-- [ ] Dashboard shows leaderboard
+**Done when:** `getMatchMetrics()` returns `avgResponseTime`, `blunderRate`, `tacticalAccuracy` in addition to existing win/draw/illegal-move rates. All computed from the event log.
+
+**Spec:** Stories 52-53. ADR-017.
+
+### Step 10: Dashboard reads from DB ✅
+
+**Done when:** Leaderboard fetches ratings from SQLite (via `GET /api/ratings`), not from in-memory tournament manager. Ratings persist across server restarts.
+
+**Spec:** Story 56.
 
 ---
 
-## Milestone 8: Evaluation Metrics 📈 ✅
-**Goal:** Diagnostic metrics beyond just wins/losses
+## Phase 5: Testing (hardens everything)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Win rate calculation | 52 | ✅ |
-| Draw rate calculation | 52 | ✅ |
-| Illegal move rate | 52 | ✅ |
-| Communication stats | 52 | ✅ |
-| Game results breakdown | 52 | ✅ |
-| Multi-dimensional display | 53 | ✅ |
+### Step 11: API integration tests ✅
 
-**Acceptance Criteria:**
-- [ ] All metrics computed from event log
-- [ ] Metrics displayed in dashboard
-- [ ] Per-model breakdown available
+**Done when:** Every endpoint in `docs/spec.md` § API Endpoints has at least one Vitest test that hits it via HTTP (using `ElysiaJS` test client or supertest). Tests cover: happy path, auth rejection (401), wrong-match rejection (403), rate limiting, budget enforcement.
+
+**Spec:** Testing decisions in spec.md.
+
+### Step 12: Clock integration tests ✅
+
+**Done when:** Tests verify: flag fall triggers loss, insufficient material triggers draw, 30-second reset blocks moves, clock pauses on server error, clock does NOT pause on model error.
+
+**Spec:** ADR-003 timeout handling table.
 
 ---
 
-## Milestone 9: Reproducibility 🔄 ✅
-**Goal:** Full match manifests for reproducibility
+## Phase 6: Deployment (unblocks self-hosting)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Complete match manifest | 59 | ✅ |
-| Chess960 seed recorded | 60 | ✅ |
-| Prompt version recorded | 61 | ✅ |
-| Rules version recorded | — | ✅ |
-| Environment recorded | — | ✅ |
-| Manifest downloadable | — | ✅ |
+### Step 13: Docker works end-to-end ✅
 
-**Acceptance Criteria:**
-- [ ] GET /api/match/:id/manifest returns full manifest
-- [ ] Manifest includes all seeds
-- [ ] Manifest can be used to reproduce match
+**Done when:** `docker compose up` starts server + web + SQLite. The health endpoint returns 200. A match can be created and played through the Docker setup.
+
+**Spec:** Story 68.
+
+### Step 14: Environment documentation ✅
+
+**Done when:** `.env.example` exists with every required variable documented. `README.md` § Setup lists all env vars and their purpose. No variable is undocumented.
+
+**Spec:** Story 70.
 
 ---
 
-## Milestone 10: Benchmark Integrity 🛡️ ✅
-**Goal:** Anti-gaming measures
+## Deferred (not v1)
 
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Randomized starting positions | 62 | ✅ |
-| Match-specific player IDs | 63 | ✅ |
-| Private matches option | 64 | ✅ |
-| Multiple seeds | — | ✅ |
-| Prompt randomization | — | ✅ |
+These are explicitly out of scope per spec § Out of Scope:
 
-**Acceptance Criteria:**
-- [ ] Chess960 positions vary per match
-- [ ] Player IDs unique per match
-- [ ] Private match flag supported
-- [ ] Same seed → same position
-
----
-
-## Milestone 11: Model Configuration 📝
-**Goal:** Full model config tracking
-
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Record full config per match | 65 | ⚠️ |
-| Import from Codex CLI | 66 | ❌ |
-| Import from Open Code | 66 | ❌ |
-| Import from chat apps | 66 | ❌ |
-| Immutable configs | 67 | ❌ |
-| Config in manifest | 65 | ⚠️ |
-
-**Acceptance Criteria:**
-- [ ] Model config recorded with every match
-- [ ] Config import CLI command
-- [ ] Same config = same model entry
-
----
-
-## Milestone 12: Frontend Polish 🎨
-**Goal:** Complete web interface
-
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Live chessboard (no polling) | 54 | ⚠️ |
-| Move history display | 55 | ✅ |
-| Clock display | 55 | ✅ |
-| Tournament leaderboard | 56 | ⚠️ |
-| Game replay | 57 | ⚠️ |
-| Post-match reveal | 58 | ❌ |
-| shadcn/ui components | — | ❌ |
-| Responsive design | — | ❌ |
-
-**Acceptance Criteria:**
-- [ ] Board updates via WebSocket
-- [ ] Leaderboard shows ratings
-- [ ] Replay works move-by-move
-- [ ] Mobile-friendly layout
-
----
-
-## Milestone 13: Testing & Quality 🧪
-**Goal:** Comprehensive test coverage
-
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Unit tests (chess logic) | — | ✅ |
-| Unit tests (match engine) | — | ✅ |
-| Integration tests (API) | — | ❌ |
-| E2E tests (Playwright) | — | ❌ |
-| Clock behavior tests | — | ❌ |
-| Rate limit tests | — | ❌ |
-| WebSocket tests | — | ❌ |
-
-**Acceptance Criteria:**
-- [ ] 80%+ code coverage
-- [ ] All API endpoints tested
-- [ ] E2E match flow tested
-- [ ] CI pipeline green
-
----
-
-## Milestone 14: Deployment 🚀
-**Goal:** Production-ready deployment
-
-| Task | Spec Story | Status |
-|------|------------|--------|
-| Docker build working | 68 | ⚠️ |
-| Docker Compose setup | 68 | ⚠️ |
-| Vercel deployment | 69 | ❌ |
-| Environment variables | — | ❌ |
-| Production build | — | ❌ |
-| Health checks | — | ✅ |
-
-**Acceptance Criteria:**
-- [ ] `docker compose up` starts everything
-- [ ] Web frontend deployed to Vercel
-- [ ] All env vars documented
-- [ ] Production build optimized
-
----
-
-## Priority Order
-
-```
-Phase 1 (Foundation):
-  Milestone 1: Data Persistence
-  Milestone 2: Time Control
-  Milestone 5: Security & Auth
-
-Phase 2 (Core Features):
-  Milestone 3: Token/API Limits
-  Milestone 4: Real-Time WebSocket
-  Milestone 6: Communication
-
-Phase 3 (Tournament):
-  Milestone 7: Tournament Features
-  Milestone 8: Evaluation Metrics
-  Milestone 9: Reproducibility
-
-Phase 4 (Polish):
-  Milestone 10: Benchmark Integrity
-  Milestone 11: Model Configuration
-  Milestone 12: Frontend Polish
-  Milestone 13: Testing
-  Milestone 14: Deployment
-```
+- Import configs from Codex CLI / Open Code (Story 66)
+- Immutable model configs (Story 67)
+- Post-match identity reveal (Story 58)
+- Swiss / knockout tournament formats (ADR-009)
+- shadcn/ui components
+- Playwright E2E tests
+- Vercel deployment
+- GitHub Actions CI/CD
 
 ---
 
 ## Summary
 
-| Milestone | Stories | Status |
-|-----------|---------|--------|
-| 1. Data Persistence | — | ✅ Complete |
-| 2. Time Control | 28-30, 32, 43 | ✅ Complete |
-| 3. Token/API Limits | 34-37 | ✅ Complete |
-| 4. Real-Time WebSocket | 54-55 | ✅ Complete |
-| 5. Security & Auth | 44-47 | ✅ Complete |
-| 6. Communication | 16-19, 24-25 | ✅ Complete |
-| 7. Tournament | 48-53 | ✅ Complete |
-| 8. Evaluation Metrics | 52-53 | ✅ Complete |
-| 9. Reproducibility | 59-61 | ✅ Complete |
-| 10. Benchmark Integrity | 62-64 | ✅ Complete |
-| 11. Model Config | 65-67 | ✅ Complete |
-| 12. Frontend Polish | 54-58 | ✅ Complete |
-| 13. Testing | — | ✅ Complete |
-| 14. Deployment | 68-70 | ✅ Complete |
+| Phase | Steps | Status |
+|-------|-------|--------|
+| 1. Security | 1-3 | ✅ Complete |
+| 2. Frontend Real-Time | 4-5 | ✅ Complete |
+| 3. Match Integrity | 6-8 | ✅ Complete |
+| 4. Evaluation | 9-10 | ✅ Complete |
+| 5. Testing | 11-12 | ✅ Complete |
+| 6. Deployment | 13-14 | ✅ Complete |
 
-**Overall Progress:** 100% complete
-
-## Final Verification
-
-| Check | Status |
-|-------|--------|
-| TypeScript | ✅ 0 errors |
-| Oxc Lint | ✅ 0 errors, 1326 warnings (style) |
-| Tests | ✅ 109 passing (107 server + 2 web) |
-| Server | ✅ Starts, loads from DB |
-| WebSocket | ✅ Available at ws://localhost:3001/ws |
+**14 steps. Each has a checkable completion criterion. Start with Phase 1.**

@@ -16,7 +16,7 @@
     "typecheck": "cd packages/server && tsc --noEmit && cd ../web && tsc --noEmit"
   },
   "devDependencies": {
-    "@oxlint/plugins": "^1.78.0",
+    "@oxlint/plugins": "^1.80.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
     "oxlint": "^1.79.0",
@@ -33,7 +33,6 @@
   "dependencies": {
     "concurrently": "^10.0.5"
   },
-
   "allowScripts": {
     "*": true
   }

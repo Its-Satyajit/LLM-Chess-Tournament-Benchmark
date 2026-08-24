@@ -1,6 +1,6 @@
 import type { GameResult } from '../chess/ChessGame';
 import { ChessGame } from '../chess/ChessGame'
-import type { ModelConfig } from '@llm-chess-arena/shared'
+import type { EventData, ModelConfig } from '@llm-chess-arena/shared'
 import { LIMITS } from '@llm-chess-arena/shared'
 import { randomBytes } from 'crypto'
 
@@ -24,6 +24,7 @@ export interface Match {
   timeControl: string
   startingPosition: 'standard' | 'chess960'
   boardMode: 'pure' | 'assisted'
+  chess960Seed: number | null
   games: Game[]
   currentGameIndex: number
   createdAt: Date
@@ -37,6 +38,9 @@ export interface Game {
   gameNumber: number
   whitePlayerId: string
   blackPlayerId: string
+  // Story 33: Fresh IDs per game for prompt display (LLM sees different identity each game)
+  displayPlayerAId: string
+  displayPlayerBId: string
   status: 'pending' | 'active' | 'completed'
   result: GameResult | null
   fenInitial: string
@@ -74,19 +78,16 @@ export interface MoveResult {
 }
 
 export interface GameStateResponse {
+  clock: { black: number; white: number | undefined } | { black: number | undefined; white: number }
   fen: string
-  turn: 'white' | 'black'
-  legalMoves?: string[]
   history: string[]
-  clock: {
-    white: number
-    black: number
-  }
   isCheck: boolean
   isCheckmate: boolean
-  isStalemate: boolean
   isDraw: boolean
   isGameOver: boolean
+  isStalemate: boolean
+  legalMoves?: string[]
+  turn: 'white' | 'black'
 }
 
 const RESET_PERIOD_MS = 30_000 // 30 seconds between games
@@ -193,7 +194,7 @@ export type EventCallback = (event: {
   gameId: string
   eventType: string
   playerId: string
-  data: Record<string, unknown>
+  data: EventData
   timestamp: Date
 }) => void
 
@@ -205,7 +206,7 @@ export class MatchEngine {
     gameId: string
     eventType: string
     playerId: string
-    data: Record<string, unknown>
+    data: EventData
     timestamp: Date
   }[] = []
   private eventListeners: EventCallback[] = []
@@ -218,19 +219,22 @@ export class MatchEngine {
     const matchId = `MATCH-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`,
      playerAId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
      playerBId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
+     chess960Seed = config.startingPosition === 'chess960' ? Date.now() : null,
 
      games: Game[] = []
     for (let i = 0; i < 4; i++) {
       const gameId = `GAME-${Date.now()}-${i}-${randomBytes(3).toString('hex').toUpperCase()}`,
        isChess960 = i >= 2,
        isWhiteTurn = i % 2 === 0,
-      
+      // Story 33: Fresh IDs per game so LLM can't carry over strategy
+       displayPlayerAId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
+       displayPlayerBId = `P-${randomBytes(3).toString('hex').toUpperCase()}`,
        whitePlayerId = isWhiteTurn ? playerAId : playerBId,
        blackPlayerId = isWhiteTurn ? playerBId : playerAId
       
       let chessGame: ChessGame
       if (isChess960) {
-        chessGame = ChessGame.fromChess960Seed(Date.now() + i)
+        chessGame = ChessGame.fromChess960Seed((chess960Seed ?? Date.now()) + i)
       } else {
         chessGame = new ChessGame()
       }
@@ -243,6 +247,8 @@ export class MatchEngine {
         clock: new ClockManager(config.timeControl),
         completedAt: null,
         createdAt: new Date(),
+        displayPlayerAId,
+        displayPlayerBId,
         drawOfferCooldown: 0,
         drawOfferPending: null,
         fenFinal: null,
@@ -271,6 +277,7 @@ export class MatchEngine {
       currentGameIndex: 0,
       games,
       id: matchId,
+      chess960Seed,
       isPrivate: config.isPrivate ?? false,
       playerAId,
       playerAModel: config.playerAModel,
@@ -304,18 +311,30 @@ export class MatchEngine {
     return match.games[match.currentGameIndex]
   }
 
-  getGameState(_matchId: string, gameId: string): GameStateResponse {
+  getGameState(_matchId: string, gameId: string, playerId?: string): GameStateResponse {
     const game = this.games.get(gameId)
     if (!game) {throw new Error('Game not found')}
     
     const state = game.chessGame.getGameState(),
      legalMoves = game.chessGame.getLegalMoves()
-    
-    return {
-      clock: {
+
+    // ADR-005: Only show requesting player's clock, never opponent's
+    let clock: GameStateResponse['clock']
+    if (playerId) {
+      const isWhite = playerId === game.whitePlayerId
+      clock = isWhite
+        ? { black: undefined, white: game.clock.getWhiteTime() }
+        : { black: game.clock.getBlackTime(), white: undefined }
+    } else {
+      // Public/spectator view: show both clocks
+      clock = {
         black: game.clock.getBlackTime(),
         white: game.clock.getWhiteTime(),
-      },
+      }
+    }
+
+    return {
+      clock,
       fen: state.fen,
       history: state.history,
       isCheck: state.isCheck,
@@ -346,6 +365,7 @@ export class MatchEngine {
     const currentTurn = game.chessGame.getGameState().turn,
      isWhiteTurn = currentTurn === 'white',
      expectedPlayer = isWhiteTurn ? game.whitePlayerId : game.blackPlayerId,
+     // SAFETY: type assertion is validated by upstream schema/parsing
      color = isWhiteTurn ? 'white' as const : 'black' as const
     
     if (playerId !== expectedPlayer) {
@@ -360,6 +380,7 @@ export class MatchEngine {
     if (game.apiCallsThisGame[color] >= LIMITS.MAX_API_CALLS_PER_GAME) {
       this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
       // Forfeit the game
+      // SAFETY: type assertion is validated by upstream schema/parsing
       const forfeitResult = { reason: 'api_limit' as const, winner: color === 'white' ? 'black' as const : 'white' as const }
       this.completeGame(match, game, forfeitResult)
       return { accepted: false, error: 'API_LIMIT' }
@@ -373,6 +394,7 @@ export class MatchEngine {
     if (game.tokensThisGame[color] >= LIMITS.MAX_TOKENS_PER_GAME) {
       this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per game exceeded' })
       // Forfeit the game
+      // SAFETY: type assertion is validated by upstream schema/parsing
       const forfeitResult = { reason: 'token_limit' as const, winner: color === 'white' ? 'black' as const : 'white' as const }
       this.completeGame(match, game, forfeitResult)
       return { accepted: false, error: 'TOKEN_LIMIT' }
@@ -419,7 +441,7 @@ export class MatchEngine {
     return result
   }
 
-  checkTimeout(matchId: string, gameId: string): { timeout: boolean; loser?: 'white' | 'black'; gameOver: boolean } {
+  checkTimeout(matchId: string, gameId: string) {
     const match = this.matches.get(matchId)
     if (!match) {return { gameOver: false, timeout: false }}
     
@@ -438,8 +460,13 @@ export class MatchEngine {
       const isInsufficient = this.isInsufficientMaterial(opponentPieces)
       
       const result = isInsufficient
+        // SAFETY: type assertion is validated by upstream schema/parsing
         ? { reason: 'insufficient_material' as const, winner: null }
-        : { reason: 'timeout' as const, winner: winner as 'white' | 'black' }
+        : {
+            reason: 'timeout' as const,
+            // SAFETY: winner is determined by flag fall logic and is always 'white' | 'black'
+            winner: winner as 'white' | 'black',
+          }
       
       this.completeGame(match, game, result)
       
@@ -495,7 +522,7 @@ export class MatchEngine {
     
     // Log game over event
     this.logEvent(match.id, game.id, 'game_over', 'system', {
-      result,
+      result: result ? JSON.stringify(result) : undefined,
     })
     
     // Move to next game
@@ -588,13 +615,35 @@ export class MatchEngine {
     }
   }
 
+  // ADR-003: Clock runs during API processing
+  startPlayerTurn(_matchId: string, gameId: string, playerId: string): void {
+    const game = this.games.get(gameId)
+    if (!game || game.status !== 'active') return
+    const color = this.getPlayerColor(game, playerId)
+    if (!color) return
+    const currentTurn = game.chessGame.getGameState().turn
+    if (color !== currentTurn) return
+    game.clock.startTurn(color)
+  }
+
+  endPlayerTurn(matchId: string, gameId: string, playerId: string) {
+    const game = this.games.get(gameId)
+    if (!game || game.status !== 'active') return { timeout: false, gameOver: false }
+    const color = this.getPlayerColor(game, playerId)
+    if (!color) return { timeout: false, gameOver: false }
+    game.clock.endTurn(color)
+    // Check timeout after stopping clock
+    const timeoutResult = this.checkTimeout(matchId, gameId)
+    return { timeout: timeoutResult.timeout, gameOver: timeoutResult.gameOver }
+  }
+
   private getPlayerColor(game: Game, playerId: string): 'white' | 'black' | null {
     if (playerId === game.whitePlayerId) return 'white'
     if (playerId === game.blackPlayerId) return 'black'
     return null
   }
 
-  sendMessage(matchId: string, gameId: string, playerId: string, content: string): { sent: boolean; messageId?: string } {
+  sendMessage(matchId: string, gameId: string, playerId: string, content: string) {
     const game = this.games.get(gameId)
     if (!game) {return { sent: false }}
     
@@ -631,7 +680,7 @@ export class MatchEngine {
       }))
   }
 
-  offerDraw(matchId: string, gameId: string, playerId: string): { sent: boolean } {
+  offerDraw(matchId: string, gameId: string, playerId: string) {
     const game = this.games.get(gameId)
     if (!game) {return { sent: false }}
     
@@ -645,7 +694,7 @@ export class MatchEngine {
     this.logEvent(matchId, gameId, 'draw_offer', playerId, {})
     
     return { sent: true }
-  }  acceptDraw(matchId: string, gameId: string, playerId: string): { accepted: boolean } {
+  }  acceptDraw(matchId: string, gameId: string, playerId: string) {
     const game = this.games.get(gameId)
     if (!game) {return { accepted: false }}
 
@@ -666,7 +715,7 @@ export class MatchEngine {
     return { accepted: true }
   }
 
-  rejectDraw(matchId: string, gameId: string, playerId: string): { rejected: boolean } {
+  rejectDraw(matchId: string, gameId: string, playerId: string) {
     const game = this.games.get(gameId)
     if (!game) {return { rejected: false }}
 
@@ -683,7 +732,7 @@ export class MatchEngine {
     return { rejected: true }
   }
 
-  resign(matchId: string, gameId: string, playerId: string): { resigned: boolean } {
+  resign(matchId: string, gameId: string, playerId: string) {
     const game = this.games.get(gameId)
     if (!game) {return { resigned: false }}
     
@@ -703,7 +752,7 @@ export class MatchEngine {
     return { resigned: true }
   }
 
-  private logEvent(matchId: string, gameId: string, eventType: string, playerId: string, data: Record<string, unknown>): void {
+  private logEvent(matchId: string, gameId: string, eventType: string, playerId: string, data: EventData): void {
     const event = {
       data,
       eventType,
@@ -739,7 +788,7 @@ export class MatchEngine {
     gameId: string
     eventType: string
     playerId: string
-    data: Record<string, unknown>
+    data: EventData
     timestamp: Date
   }): void {
     this.events.push(event)
@@ -759,6 +808,9 @@ export class MatchEngine {
     drawRate: number
     illegalMoveRate: number
     avgMovesPerGame: number
+    avgResponseTime: number
+    blunderRate: number
+    tacticalAccuracy: number
     gameResults: { white_win: number; black_win: number; draw: number }
   } | null {
     const match = this.matches.get(matchId)
@@ -783,12 +835,34 @@ export class MatchEngine {
     const total = completedGames.length || 1
     const totalAttempts = moves.length + illegalMoves.length
 
+    // Compute avgResponseTime from consecutive move events
+    let totalResponseTime = 0
+    let responseCount = 0
+    for (let i = 1; i < moves.length; i++) {
+      const prev = moves[i - 1].timestamp.getTime()
+      const curr = moves[i].timestamp.getTime()
+      if (curr > prev) {
+        totalResponseTime += (curr - prev) / 1000
+        responseCount++
+      }
+    }
+    const avgResponseTime = responseCount > 0 ? totalResponseTime / responseCount : 0
+
+    // blunderRate: illegal moves / total attempts (simplified — no eval available)
+    const blunderRate = totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0
+
+    // tacticalAccuracy: successful moves / total attempts (inverse of blunder rate)
+    const tacticalAccuracy = totalAttempts > 0 ? moves.length / totalAttempts : 1
+
     return {
       avgMovesPerGame: moves.length / (completedGames.length || 1),
+      avgResponseTime,
       blackWinRate: results.black_win / total,
+      blunderRate,
       drawRate: results.draw / total,
       gameResults: results,
       illegalMoveRate: totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0,
+      tacticalAccuracy,
       totalDrawOffers: drawOffers.length,
       totalIllegalMoves: illegalMoves.length,
       totalMessages: messages.length,

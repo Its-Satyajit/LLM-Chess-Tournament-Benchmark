@@ -1,12 +1,14 @@
+import { BENCHMARK_VERSION, MANIFEST_VERSION, PROMPT_VERSION, RULES_VERSION } from '@llm-chess-arena/shared'
 import { Elysia } from 'elysia'
 import { engine } from './match'
 import { getPromptHash } from '../prompt'
-import { BENCHMARK_VERSION, MANIFEST_VERSION, PROMPT_VERSION, RULES_VERSION } from '@llm-chess-arena/shared'
 
 const manifestRoutes = new Elysia({ prefix: '/api/match' })
   .get('/:matchId/manifest', ({ params }) => {
     const match = engine.getMatch(params.matchId)
-    if (!match) {return { error: 'Match not found' }}
+    if (!match) { return { error: 'Match not found' } }
+
+    const { boardMode, playerAModel, playerAId, playerBModel, playerBId, startingPosition, timeControl } = match
 
     return {
       benchmarkVersion: BENCHMARK_VERSION,
@@ -18,14 +20,14 @@ const manifestRoutes = new Elysia({ prefix: '/api/match' })
       manifestVersion: MANIFEST_VERSION,
       matchId: match.id,
       parameters: {
-        boardMode: match.boardMode,
-        chess960Seed: null,
-        startingPosition: match.startingPosition,
-        timeControl: match.timeControl,
+        boardMode,
+        chess960Seed: match.chess960Seed,
+        startingPosition,
+        timeControl,
       },
       players: {
-        a: { modelConfig: match.playerAModel, playerId: match.playerAId },
-        b: { modelConfig: match.playerBModel, playerId: match.playerBId },
+        playerA: { modelConfig: playerAModel, playerId: playerAId },
+        playerB: { modelConfig: playerBModel, playerId: playerBId },
       },
       prompt: {
         templateHash: getPromptHash(),
@@ -39,7 +41,7 @@ const manifestRoutes = new Elysia({ prefix: '/api/match' })
         version: RULES_VERSION,
       },
       seeds: {
-        chess960Seed: null,
+        chess960Seed: match.chess960Seed,
         matchSeed: Date.now(),
       },
     }

@@ -47,14 +47,13 @@ interface WsEvent {
   reason?: string
   fen?: string
   turn?: string
-  clock?: { white: number; black: number }
+  clock?: { white?: number; black?: number }
   from?: string
   accepted?: boolean
 }
 
 export default function Arena() {
   const [matchId, setMatchId] = useState('')
-  const [gameId, setGameId] = useState('')
   const [playerId, setPlayerId] = useState('')
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white')
   const [timeControl] = useState('10+5')
@@ -67,6 +66,7 @@ export default function Arena() {
   const [wsConnected, setWsConnected] = useState(false)
   const [wsEvents, setWsEvents] = useState<WsEvent[]>([])
   const wsRef = useRef<WebSocket | null>(null)
+  const gameIdRef = useRef('')
 
   const fetchGameState = useCallback(async (mId: string, gId: string) => {
     try {
@@ -78,13 +78,45 @@ export default function Arena() {
     }
   }, [])
 
+  // Stable WS handler — uses refs to avoid reconnection loops
+  const handleWsMessage = useCallback((event: MessageEvent, mId: string) => {
+    try {
+      // SAFETY: WS messages are JSON from our own server
+      const data = JSON.parse(event.data) as WsEvent
+      setWsEvents(prev => [...prev.slice(-50), data])
+
+      switch (data.type) {
+        case 'subscribed':
+          // Initial subscription confirmed
+          break
+        case 'move_made':
+          if (data.gameId === gameIdRef.current) {
+            // Re-fetch full state after a move (includes updated clock, legal moves, etc.)
+            fetchGameState(mId, data.gameId)
+          }
+          break
+        case 'message_sent':
+          // Could show notification
+          break
+        case 'game_over':
+          setStatus(`Game Over: ${data.result} (${data.reason})`)
+          break
+        case 'match_over':
+          setStatus(`Match Over: ${data.result}`)
+          break
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }, [fetchGameState])
+
   const connectWebSocket = useCallback((mId: string) => {
     if (wsRef.current) {
       wsRef.current.close()
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//localhost:3001/ws`)
+    const ws = new WebSocket(`${protocol}//${window.location.hostname}:3001/ws`)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -92,48 +124,11 @@ export default function Arena() {
       ws.send(JSON.stringify({ type: 'subscribe', matchId: mId }))
     }
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as WsEvent
-        setWsEvents(prev => [...prev.slice(-50), data]) // Keep last 50 events
+    ws.onmessage = (event) => handleWsMessage(event, mId)
 
-        switch (data.type) {
-          case 'state_update':
-            if (data.gameId === gameId) {
-              setGameState(prev => prev ? { ...prev, fen: data.fen || prev.fen, turn: (data.turn as 'white' | 'black') || prev.turn, clock: data.clock || prev.clock } : prev)
-            }
-            break
-          case 'move_made':
-            if (data.gameId === gameId) {
-              setMoves(prev => [...prev, data.move || ''])
-              setGameState(prev => prev ? { ...prev, turn: (data.player === gameState?.fen?.split(' ')[1] ? (data.player === 'w' ? 'black' : 'white') : 'white') as 'white' | 'black', clock: data.clock || prev.clock } : prev)
-              // Re-fetch full state after a move
-              fetchGameState(mId, data.gameId!)
-            }
-            break
-          case 'message_sent':
-            // Could show notification
-            break
-          case 'game_over':
-            setStatus(`Game Over: ${data.result} (${data.reason})`)
-            break
-          case 'match_over':
-            setStatus(`Match Over: ${data.result}`)
-            break
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    ws.onclose = () => {
-      setWsConnected(false)
-    }
-
-    ws.onerror = () => {
-      setWsConnected(false)
-    }
-  }, [gameId, gameState, fetchGameState])
+    ws.onclose = () => setWsConnected(false)
+    ws.onerror = () => setWsConnected(false)
+  }, [handleWsMessage])
 
   const connectToMatch = async () => {
     if (!matchId.trim()) {
@@ -147,6 +142,7 @@ export default function Arena() {
     try {
       const match = await getMatch(matchId)
       if (match.error) {
+        // SAFETY: error is a string from the API
         setError(match.error as string)
         setLoading(false)
         return
@@ -157,7 +153,7 @@ export default function Arena() {
       // Get the current active game
       const activeGame = match.games.find(g => g.status === 'active') || match.games[0]
       if (activeGame) {
-        setGameId(activeGame.id)
+        gameIdRef.current = activeGame.id
         setPlayerId(match.playerAId || '')
         setPlayerColor(activeGame.whitePlayerId === match.playerAId ? 'white' : 'black')
         await fetchGameState(matchId, activeGame.id)
@@ -173,17 +169,13 @@ export default function Arena() {
   }
 
   // Cleanup WebSocket on unmount
-  useEffect(() => {
-    return () => {
-      wsRef.current?.close()
-    }
-  }, [])
+  useEffect(() => () => wsRef.current?.close(), [])
 
   const getPrompt = () =>
-      PROMPT_TEMPLATE
-        .replace('{PLAYER_ID}', playerId)
-        .replace('{COLOR}', playerColor)
-        .replace('{TIME_CONTROL}', timeControl)
+    PROMPT_TEMPLATE
+      .replace('{PLAYER_ID}', playerId)
+      .replace('{COLOR}', playerColor)
+      .replace('{TIME_CONTROL}', timeControl)
 
   const copyPrompt = () => {
     navigator.clipboard.writeText(getPrompt())
@@ -250,7 +242,7 @@ export default function Arena() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold">Game Info</h2>
             <span className={`text-xs px-2 py-1 rounded ${wsConnected ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}`}>
-              {wsConnected ? '🟢 Live' : '🔴 Polling'}
+              {wsConnected ? '🟢 Live' : '🔴 Disconnected'}
             </span>
           </div>
           <div className="space-y-1 text-sm">
@@ -258,8 +250,12 @@ export default function Arena() {
             {gameState && (
               <>
                 <p className="text-gray-400">Turn: <span className="text-white capitalize">{gameState.turn}</span></p>
-                <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
-                <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
+                {gameState.clock.white !== undefined && (
+                  <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
+                )}
+                {gameState.clock.black !== undefined && (
+                  <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
+                )}
                 {gameState.isCheck && <p className="text-red-400">Check!</p>}
                 {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
                 {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}

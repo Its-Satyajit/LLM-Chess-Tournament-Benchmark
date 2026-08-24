@@ -9,6 +9,7 @@ const database = new DatabaseService(),
  tournamentRoutes = new Elysia({ prefix: '/api/tournament' })
   .post('/create', ({ body }) => {
     const tournament = tournamentManager.createTournament({
+      // SAFETY: format defaults to "round_robin" and matches TournamentFormat union
       format: (body.format || 'round_robin') as 'round_robin' | 'swiss' | 'knockout',
       models: body.models,
       name: body.name,

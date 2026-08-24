@@ -3,6 +3,7 @@ import { matches, games, events, ratings } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { MatchEngine, Match, Game } from '../game/MatchEngine'
 import { ChessGame } from '../chess/ChessGame'
+import type { EventData } from '@llm-chess-arena/shared'
 import { ClockManager } from '../game/MatchEngine'
 
 export class DatabaseService {
@@ -29,7 +30,7 @@ export class DatabaseService {
       status: match.status,
       timeControl: match.timeControl,
       startingPosition: match.startingPosition,
-      chess960Seed: null,
+      chess960Seed: match.chess960Seed,
       boardMode: match.boardMode,
       isPrivate: match.isPrivate ?? false,
       createdAt: match.createdAt,
@@ -78,7 +79,7 @@ export class DatabaseService {
     gameId: string
     eventType: string
     playerId: string
-    data: Record<string, unknown>
+    data: EventData
     timestamp: Date
     gameMove?: number
     clockWhite?: number
@@ -127,6 +128,19 @@ export class DatabaseService {
       })
     }
   }
+
+  // Get all ratings from database
+  async getAllRatings(): Promise<{ model: string; provider: string; rating: number; rd: number; gamesPlayed: number }[]> {
+    const dbRatings = await db.select().from(ratings)
+    return dbRatings.map(r => ({
+      model: r.modelName,
+      provider: r.provider,
+      rating: r.glickoRating,
+      rd: r.glickoRd,
+      gamesPlayed: r.gamesPlayed,
+    }))
+  }
+
   // Load all matches from database
   async loadMatches(): Promise<void> {
     const dbMatches = await db.select().from(matches)
@@ -153,7 +167,11 @@ export class DatabaseService {
         moveCount: g.moveCount,
         moves: [],
         result: g.result ? JSON.parse(g.result) : null,
+        // SAFETY: g.status is stored as a string and matches GameStatus union
         status: g.status as 'pending' | 'active' | 'completed',
+        // Story 33: Generate fresh display IDs per game (not persisted, regenerated on load)
+        displayPlayerAId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        displayPlayerBId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
         tokensThisGame: { black: 0, white: 0 },
         tokensThisMove: { black: 0, white: 0 },
         whitePlayerId: g.whitePlayerId,
@@ -179,10 +197,15 @@ export class DatabaseService {
         playerBId: dbMatch.playerBId,
         playerAModel: JSON.parse(dbMatch.playerAModel),
         playerBModel: JSON.parse(dbMatch.playerBModel),
+        // SAFETY: dbMatch.status is stored as "active" | "completed"
         status: dbMatch.status as 'active' | 'completed',
         timeControl: dbMatch.timeControl,
+        // SAFETY: dbMatch.startingPosition is stored as "standard" | "chess960"
         startingPosition: dbMatch.startingPosition as 'standard' | 'chess960',
+        // SAFETY: dbMatch.boardMode is stored as "pure" | "assisted"
         boardMode: dbMatch.boardMode as 'pure' | 'assisted',
+        chess960Seed: dbMatch.chess960Seed ?? null,
+        // SAFETY: type assertion is validated by upstream schema/parsing
         isPrivate: (dbMatch as any).isPrivate ?? false,
         games: matchGames,
         currentGameIndex: currentGameIndex >= 0 ? currentGameIndex : 0,

@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash } from 'node:crypto'
 
 export const PROMPT_TEMPLATE = `You are participating in a competitive chess match.
 
@@ -32,21 +32,22 @@ Gameplay:
 - Resignation is immediate and irreversible`
 
 export interface PromptData {
-  playerId: string
   color: 'white' | 'black'
+  playerId: string
   timeControl: string
+  // Story 33: Fresh display ID per game (different from auth ID)
+  displayPlayerId?: string
 }
 
-export function generatePrompt(data: PromptData): string {
-  return PROMPT_TEMPLATE
-    .replace('{PLAYER_ID}', data.playerId)
+export const generatePrompt = (data: PromptData): string =>
+  PROMPT_TEMPLATE
+    // Story 33: Use display ID if available, otherwise fall back to auth ID
+    .replace('{PLAYER_ID}', data.displayPlayerId ?? data.playerId)
     .replace('{COLOR}', data.color)
     .replace('{TIME_CONTROL}', data.timeControl)
-}
 
-export function getPromptHash(): string {
-  return createHash('sha256').update(PROMPT_TEMPLATE).digest('hex')
-}
+export const getPromptHash = (): string =>
+  createHash('sha256').update(PROMPT_TEMPLATE).digest('hex')
 
 export const TOOL_DEFINITIONS = [
   {

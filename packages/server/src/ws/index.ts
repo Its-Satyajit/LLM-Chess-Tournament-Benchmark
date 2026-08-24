@@ -1,11 +1,17 @@
 import { Elysia, t } from 'elysia'
+import type { EventData } from '@llm-chess-arena/shared'
+
+// SAFETY: WebSocket connections are managed by ElysiaJS WS handler
+interface WsConnection {
+  send: (data: string) => void
+}
 
 // Store active connections by matchId
-const rooms = new Map<string, Set<any>>()
+const rooms = new Map<string, Set<WsConnection>>()
 // Track which rooms each WebSocket is subscribed to
-const wsSubscriptions = new Map<any, Set<string>>()
+const wsSubscriptions = new Map<WsConnection, Set<string>>()
 
-export function broadcast(matchId: string, event: Record<string, unknown>) {
+export function broadcast(matchId: string, event: EventData & { type: string }) {
   const clients = rooms.get(matchId)
   if (!clients) return
 
@@ -86,7 +92,7 @@ export const wsRoutes = new Elysia()
   })
 
 // Helper: broadcast specific event types
-export function broadcastStateUpdate(matchId: string, gameId: string, state: Record<string, unknown>) {
+export function broadcastStateUpdate(matchId: string, gameId: string, state: EventData) {
   broadcast(matchId, {
     type: 'state_update',
     matchId,

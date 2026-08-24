@@ -1,6 +1,7 @@
 // Types
 export type {
   Event,
+  EventData,
   Game,
   Match,
   MatchManifest,

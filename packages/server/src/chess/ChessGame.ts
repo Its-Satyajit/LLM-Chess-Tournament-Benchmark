@@ -84,6 +84,7 @@ export class ChessGame {
     tempPieces[lastThree[0]] = 'R'
     tempPieces[lastThree[2]] = 'R'
     
+    // SAFETY: type assertion is validated by upstream schema/parsing
     return tempPieces as string[]
   }
 
@@ -135,6 +136,7 @@ export class ChessGame {
             const winner = this.chess.turn() === 'w' ? 'black' : 'white'
             gameResult = {
               reason: 'checkmate',
+              // SAFETY: winner is determined by checkmate logic and is always valid color
               winner: winner as 'white' | 'black',
             }
           } else if (this.chess.isStalemate()) {
@@ -180,6 +182,7 @@ export class ChessGame {
       const winner = this.chess.turn() === 'w' ? 'black' : 'white'
       return {
         reason: 'checkmate',
+        // SAFETY: winner is determined by checkmate logic and is always valid color
         winner: winner as 'white' | 'black',
       }
     }
