@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.lockb
+*.sqlite
+data/
+.env
+.env.local
+.DS_Store
+node_modules/

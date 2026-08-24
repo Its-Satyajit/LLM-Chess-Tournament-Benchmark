@@ -1,0 +1,23 @@
+{
+  "$schema": "https://oxc-project.github.io/repos/oxc/oxc/linter/schema.json",
+  "plugins": ["typescript", "react", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "pedantic": "warn",
+    "perf": "warn",
+    "style": "warn"
+  },
+  "rules": {
+    "typescript/no-unused-vars": "warn",
+    "typescript/no-explicit-any": "warn",
+    "unicorn/no-null": "off",
+    "unicorn/prefer-module": "warn"
+  },
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "*.lockb"
+  ]
+}

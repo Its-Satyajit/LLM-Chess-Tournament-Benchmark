@@ -1,0 +1,34 @@
+{
+  "name": "llm-chess-arena",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w packages/server\" \"npm run dev -w packages/web\"",
+    "build": "npm run build -w packages/server && npm run build -w packages/web",
+    "test": "npm run test -w packages/server && npm run test -w packages/web",
+    "lint": "oxlint packages/*/src",
+    "lint:fix": "oxlint --fix packages/*/src",
+    "format": "dprint fmt",
+    "typecheck": "npm run typecheck -w packages/server && npm run typecheck -w packages/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "oxlint": "^0.9.0",
+    "dprint": "^0.47.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^15.2.0",
+    "typescript": "^5.5.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "oxlint --fix",
+      "dprint fmt"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
