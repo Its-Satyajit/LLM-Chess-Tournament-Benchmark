@@ -17,7 +17,8 @@
     "test": "cd packages/server && nubx vitest run && cd ../web && nubx vitest run",
     "lint": "nubx oxlint packages/*/src",
     "lint:fix": "nubx oxlint --fix packages/*/src",
-    "typecheck": "cd packages/server && tsc --noEmit && cd ../web && tsc --noEmit"
+    "typecheck": "cd packages/server && tsc --noEmit && cd ../web && tsc --noEmit",
+    "start": "npx -y nub@0.7.5 packages/server/src/index.ts"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",

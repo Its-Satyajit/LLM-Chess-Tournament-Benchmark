@@ -1,6 +1,4 @@
-# Build/deps stage: install workspace dependencies with pnpm (lockfile-native).
-# Full bookworm image ships python3/make/g++ for better-sqlite3's source build
-# (the container has no apt access, so slim + apt-get is not an option).
+# Build stage: install workspace deps and build the web UI
 FROM node:22-bookworm AS deps
 WORKDIR /app
 
