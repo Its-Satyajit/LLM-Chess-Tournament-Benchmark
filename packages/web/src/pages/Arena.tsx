@@ -87,6 +87,11 @@ interface WsEvent {
 
 const WS_RECONNECT_MS = 3000
 
+// API/WS base: build-time override (VITE_API_URL) or same-host :3001.
+// Set VITE_API_URL when the UI is hosted separately from the server
+// (e.g. Vercel static + self-hosted arena server).
+const apiUrl = import.meta.env.VITE_API_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`
+
 export default function Arena() {
   const [matchId, setMatchId] = useState('')
   const [promptSide, setPromptSide] = useState<'white' | 'black'>('white')
@@ -148,8 +153,8 @@ export default function Arena() {
       wsRef.current.close()
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.hostname}:3001/ws`)
+    const wsBase = apiUrl.replace(/^http/, 'ws')
+    const ws = new WebSocket(`${wsBase}/ws`)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -226,9 +231,6 @@ export default function Arena() {
   // (A/B), not colors — colors swap every game.
   const [tokenA, setTokenA] = useState("")
   const [tokenB, setTokenB] = useState("")
-
-  // Base URL the LLM should hit (server port, mirroring the WS URL)
-  const apiUrl = `${window.location.protocol}//${window.location.hostname}:3001`
 
   // Build the prompt for the selected side (ADR-006 canonical template).
   // Uses the per-game display ID when the server provides one (Story 33).

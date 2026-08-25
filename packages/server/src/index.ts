@@ -97,7 +97,7 @@ const webUi = (app: Elysia) => {
     })
 }
 
-const app = new Elysia({ adapter: nodeAdapter })
+void new Elysia({ adapter: nodeAdapter })
   .use(cors())
   .get('/health', () => ({ status: 'healthy' }))
   .use(wsRoutes)

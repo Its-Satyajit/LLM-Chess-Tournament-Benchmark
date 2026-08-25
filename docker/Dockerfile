@@ -1,6 +1,4 @@
-# Build/deps stage: install workspace dependencies with pnpm (lockfile-native).
-# Full bookworm image ships python3/make/g++ for better-sqlite3's source build
-# (the container has no apt access, so slim + apt-get is not an option).
+# Build stage: install workspace deps and build the web UI
 FROM node:22-bookworm AS deps
 WORKDIR /app
 
@@ -12,15 +10,20 @@ COPY packages/web/package.json packages/web/
 RUN corepack enable && corepack prepare pnpm@11.23.0 --activate \
  && pnpm install --frozen-lockfile
 
+COPY . .
+# Builds server types (tsc) and the web UI (vite build -> packages/web/dist)
+RUN pnpm run build
+
 # Runtime stage
-FROM node:22-bookworm-slim AS production
+FROM node:22-bookworm AS production
 WORKDIR /app
 
 # Server entrypoints are TypeScript source, executed with nub (project runtime)
 RUN npm i -g nub@0.7.5
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nub.config.yaml ./
+COPY --from=deps /app/packages/web/dist ./packages/web/dist
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nixpacks.toml nub.config.yaml ./
 COPY packages/shared ./packages/shared
 COPY packages/server ./packages/server
 
@@ -29,4 +32,5 @@ RUN mkdir -p /app/data
 ENV NODE_ENV=production
 EXPOSE 3001
 
+# Single container: API + WebSocket + static web UI all on :3001
 CMD ["nub", "packages/server/src/index.ts"]
