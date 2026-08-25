@@ -1,6 +1,6 @@
 import { db, initializeDatabase } from '../db'
-import { matches, games, events, ratings } from '../db/schema'
-import { eq } from 'drizzle-orm'
+import { matches, games, events, ratings, messages as messagesTable, models as modelsTable } from '../db/schema'
+import { eq, inArray } from 'drizzle-orm'
 import { MatchEngine, Match, Game } from '../game/MatchEngine'
 import { ChessGame } from '../chess/ChessGame'
 import type { EventData } from '@llm-chess-arena/shared'
@@ -8,6 +8,8 @@ import { ClockManager } from '../game/MatchEngine'
 
 export class DatabaseService {
   private engine: MatchEngine
+  // Per-match watermark: how many engine events have been persisted
+  private savedEventCounts = new Map<string, number>()
 
   constructor() {
     initializeDatabase()
@@ -97,6 +99,63 @@ export class DatabaseService {
     })
   }
 
+  // Persist all engine events not yet written (watermarked per match so
+  // co-emitted events like move + game_over are never skipped)
+  async saveNewEvents(matchId: string): Promise<void> {
+    const events = this.engine.getEvents(matchId)
+    const alreadySaved = this.savedEventCounts.get(matchId) ?? 0
+    for (const event of events.slice(alreadySaved)) {
+      await this.saveEvent(event)
+    }
+    this.savedEventCounts.set(matchId, events.length)
+  }
+
+  async saveMessages(gameId: string, messages: Array<{ id: string; sender: string; content: string; timestamp: Date }>): Promise<void> {
+    if (messages.length === 0) return
+    await db.delete(messagesTable).where(eq(messagesTable.gameId, gameId))
+    await db.insert(messagesTable).values(
+      messages.map(m => ({
+        content: m.content,
+        gameId,
+        id: m.id,
+        sender: m.sender,
+        timestamp: m.timestamp,
+      })),
+    )
+  }
+
+  async loadMessages(gameId: string): Promise<Array<{ id: string; sender: string; content: string; timestamp: Date }>> {
+    const rows = await db.select().from(messagesTable).where(eq(messagesTable.gameId, gameId))
+    return rows.map(r => ({
+      content: r.content,
+      id: r.id,
+      sender: r.sender,
+      timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp),
+    }))
+  }
+
+  async saveModels(models: Array<{ id: string; name: string; provider: string; config: unknown }>): Promise<void> {
+    await db.delete(modelsTable).run()
+    if (models.length === 0) return
+    await db.insert(modelsTable).values(
+      models.map(m => ({
+        config: JSON.stringify(m.config),
+        id: m.id,
+        name: m.name,
+        provider: m.provider,
+      })),
+    )
+  }
+
+  async loadModels(): Promise<Array<{ id: string; name: string; provider: string; config: unknown }>> {
+    return db.select().from(modelsTable).all().map(r => ({
+      config: JSON.parse(r.config),
+      id: r.id,
+      name: r.name,
+      provider: r.provider,
+    }))
+  }
+
   // Save or update rating
   async saveRating(modelName: string, provider: string, rating: {
     rating: number
@@ -163,7 +222,7 @@ export class DatabaseService {
         gameNumber: g.gameNumber,
         id: g.id,
         matchId: g.matchId,
-        messages: [],
+        messages: [], // populated from DB below
         moveCount: g.moveCount,
         moves: [],
         result: g.result ? JSON.parse(g.result) : null,
@@ -213,17 +272,41 @@ export class DatabaseService {
         completedAt: dbMatch.completedAt ? (dbMatch.completedAt instanceof Date ? dbMatch.completedAt : new Date(dbMatch.completedAt * 1000)) : null,
       }
 
+      // Load persisted chat messages into each game
+      for (const game of matchGames) {
+        game.messages = await this.loadMessages(game.id)
+      }
+
+      // Restore events into the engine and mark them as already saved
+      const savedRows = await db
+        .select()
+        .from(events)
+        .where(inArray(events.gameId, matchGames.map(g => g.id)))
+      this.engine.restoreEvents(savedRows.map(r => ({
+        // SAFETY: data was written by saveEvent as JSON.stringify(EventData)
+        data: JSON.parse(r.data) as EventData,
+        eventType: r.eventType,
+        gameId: r.gameId,
+        matchId: dbMatch.id,
+        playerId: r.playerId,
+        timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp),
+      })))
+      this.savedEventCounts.set(match.id, savedRows.length)
+
       // Add to engine's internal state
       this.engine.addMatch(match)
     }
   }
 
-  // Clear all data (for tests)
+  // Clear all data (for tests) — children first to satisfy FK constraints
   async clearAll(): Promise<void> {
+    db.delete(messagesTable).run()
+    db.delete(modelsTable).run()
     db.delete(events).run()
     db.delete(games).run()
     db.delete(matches).run()
     db.delete(ratings).run()
+    this.savedEventCounts.clear()
   }
 
   // Load ratings from database

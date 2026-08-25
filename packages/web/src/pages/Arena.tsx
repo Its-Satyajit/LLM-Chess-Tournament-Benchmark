@@ -1,39 +1,72 @@
-// @ts-expect-error lint requires React import
-import React from "react"
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getMatch, getGameState, GameState } from '../lib/api'
+import { getMatch, getGameState, type Match, GameState } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'
 
-const PROMPT_TEMPLATE = `You are participating in a competitive chess match.
+// Mirrors packages/server/src/prompt/index.ts (ADR-006 canonical template).
+// Keep in sync — the server version is the source of truth (PROMPT_VERSION v2.0).
+const PROMPT_TEMPLATE = `You are an AI chess engine competing in a benchmark tournament.
 
-Your player ID: {PLAYER_ID}
-Your color: {COLOR}
-Time control: {TIME_CONTROL}
+## Match setup
+- Benchmark: LLM Chess Arena — two AI models play a 4-game match.
+- Your opponent is another AI model. Colors swap each game.
+- You are playing the {COLOR} pieces in this game.
+- {COLOR_NOTE}
 
-Available tools:
-- GET_STATE(): Retrieve the current game state
-- MAKE_MOVE(move): Submit a chess move
-- SEND_MESSAGE(content): Send a message to your opponent
-- GET_MESSAGES(): Retrieve messages from your opponent
-- DRAW_OFFER(): Offer a draw
-- RESIGN(): Resign the match
+## Your identity
+- Player ID: {PLAYER_ID}
+- Time control: {TIME_CONTROL} (base + increment per move)
+- API base: {API_URL}
+- Full API reference: {API_URL}/llms-all.txt — read it before your first call; it documents every endpoint, auth headers, budgets, and error codes
 
-Rules:
-- The server is authoritative
-- Do not assume the current board state
-- Retrieve the current state before making a move
-- Only make a move when it is your turn
-- You may call GET_STATE multiple times per turn
-- Each tool call consumes time from your clock
-- Illegal moves are rejected; you can retry within your time
+## Credentials
+Your access token is provided together with this prompt:
 
-Gameplay:
-- Play standard chess rules
-- You can send messages to your opponent at any time
-- Messages do not affect the game state
-- You may bluff or mislead in messages
-- Draw offers require opponent acceptance
-- Resignation is immediate and irreversible`
+    Authorization: Bearer {TOKEN}
+
+Send that header on EVERY request. The token is scoped to this match only.
+If you were not given a token, ask the operator — you cannot play without it.
+
+## Your turn protocol (follow every turn)
+1. Call GET_STATE() — never assume the board position.
+2. Review "legalMoves" (assisted mode) and pick your move.
+3. Call MAKE_MOVE with your move in Standard Algebraic Notation.
+4. Stop. Wait for your opponent. You are only prompted when it is your turn.
+
+## Moves
+- Use Standard Algebraic Notation: "e4", "Nf3", "O-O" (castling), "exd5" (capture), "e8=Q" (promotion), "Qxf7#" (checkmate suffix optional).
+- The server validates every move. Illegal moves are rejected and cost clock time — re-check the position and retry.
+
+## Tools
+- GET_STATE() — board FEN, move history, turn, your clock, legal moves, draw-offer status.
+- MAKE_MOVE(move) — submit your move, e.g. MAKE_MOVE("Nf3").
+- SEND_MESSAGE(content) — send text to your opponent.
+- GET_MESSAGES() — read your opponent's messages.
+- DRAW_OFFER() — offer a draw; takes effect only if your opponent accepts.
+- DRAW_ACCEPT() / DRAW_REJECT() — respond to a pending draw offer (check GET_STATE for one).
+- RESIGN() — resign immediately. Irreversible.
+
+## Rules
+- The server is authoritative. The board is only ever what GET_STATE reports.
+- Only move when it is your turn. Moves out of turn are rejected.
+- Each tool call consumes time from your clock. The clock runs while the server processes your requests.
+
+## Budgets
+- API calls: limited per turn and per game. Exceeding either forfeits the game.
+- Output tokens: limited per move and per game. Exceeding either forfeits the game.
+- Be decisive: one GET_STATE, one MAKE_MOVE is a complete, efficient turn.
+
+## Communication
+- You may message your opponent at any time without losing the right to move.
+- Messages never affect the game state. Bluffing and psychological play are allowed.
+- Draw offers require your opponent's explicit acceptance.
+
+## Objective
+Win the game. If winning is impossible, steer toward a draw rather than losing.`
+
+const COLOR_NOTES: Record<'white' | 'black', string> = {
+  white: 'You move FIRST. Open the game.',
+  black: 'Your opponent moves FIRST. Respond to their opening.',
+}
 
 interface WsEvent {
   type: string
@@ -52,10 +85,12 @@ interface WsEvent {
   accepted?: boolean
 }
 
+const WS_RECONNECT_MS = 3000
+
 export default function Arena() {
   const [matchId, setMatchId] = useState('')
-  const [playerId, setPlayerId] = useState('')
-  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white')
+  const [promptSide, setPromptSide] = useState<'white' | 'black'>('white')
+  const [matchInfo, setMatchInfo] = useState<Match | null>(null)
   const [timeControl] = useState('10+5')
   const [status, setStatus] = useState('No match selected')
   const [gameState, setGameState] = useState<GameState | null>(null)
@@ -63,9 +98,12 @@ export default function Arena() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [wsConnected, setWsConnected] = useState(false)
   const [wsEvents, setWsEvents] = useState<WsEvent[]>([])
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeMatchRef = useRef('')
   const gameIdRef = useRef('')
 
   const fetchGameState = useCallback(async (mId: string, gId: string) => {
@@ -87,16 +125,11 @@ export default function Arena() {
 
       switch (data.type) {
         case 'subscribed':
-          // Initial subscription confirmed
           break
         case 'move_made':
           if (data.gameId === gameIdRef.current) {
-            // Re-fetch full state after a move (includes updated clock, legal moves, etc.)
             fetchGameState(mId, data.gameId)
           }
-          break
-        case 'message_sent':
-          // Could show notification
           break
         case 'game_over':
           setStatus(`Game Over: ${data.result} (${data.reason})`)
@@ -126,7 +159,16 @@ export default function Arena() {
 
     ws.onmessage = (event) => handleWsMessage(event, mId)
 
-    ws.onclose = () => setWsConnected(false)
+    ws.onclose = () => {
+      setWsConnected(false)
+      // Auto-reconnect while a match is active
+      if (activeMatchRef.current === mId && !reconnectTimerRef.current) {
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null
+          connectWebSocket(mId)
+        }, WS_RECONNECT_MS)
+      }
+    }
     ws.onerror = () => setWsConnected(false)
   }, [handleWsMessage])
 
@@ -142,197 +184,274 @@ export default function Arena() {
     try {
       const match = await getMatch(matchId)
       if (match.error) {
-        // SAFETY: error is a string from the API
-        setError(match.error as string)
+        setError(`${String(match.error)} — double-check the match ID`)
         setLoading(false)
         return
       }
 
       setStatus(match.status)
+      setMatchInfo(match)
 
-      // Get the current active game
       const activeGame = match.games.find(g => g.status === 'active') || match.games[0]
       if (activeGame) {
+        activeMatchRef.current = matchId
         gameIdRef.current = activeGame.id
-        setPlayerId(match.playerAId || '')
-        setPlayerColor(activeGame.whitePlayerId === match.playerAId ? 'white' : 'black')
+        setPromptSide(activeGame.whitePlayerId === match.playerAId ? "white" : "black")
         await fetchGameState(matchId, activeGame.id)
-
-        // Connect WebSocket
         connectWebSocket(matchId)
       }
     } catch {
-      setError('Failed to connect to match')
+      setError('Failed to connect to match — is the server running? Check the ID and retry.')
     }
 
     setLoading(false)
   }
 
-  // Cleanup WebSocket on unmount
-  useEffect(() => () => wsRef.current?.close(), [])
+  useEffect(() => () => {
+    activeMatchRef.current = ''
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+    }
+    wsRef.current?.close()
+  }, [])
 
-  const getPrompt = () =>
-    PROMPT_TEMPLATE
-      .replace('{PLAYER_ID}', playerId)
-      .replace('{COLOR}', playerColor)
+  useEffect(() => {
+    if (copyState === 'idle') return
+    const t = setTimeout(() => setCopyState('idle'), 2000)
+    return () => clearTimeout(t)
+  }, [copyState])
+
+  // Bearer tokens pasted by the operator (from match creation); the LLM
+  // receives its token inside the prompt text. Tokens belong to PLAYERS
+  // (A/B), not colors — colors swap every game.
+  const [tokenA, setTokenA] = useState("")
+  const [tokenB, setTokenB] = useState("")
+
+  // Base URL the LLM should hit (server port, mirroring the WS URL)
+  const apiUrl = `${window.location.protocol}//${window.location.hostname}:3001`
+
+  // Build the prompt for the selected side (ADR-006 canonical template).
+  // Uses the per-game display ID when the server provides one (Story 33).
+  const getPromptFor = (side: 'white' | 'black') => {
+    const game = matchInfo?.games.find(g => g.id === gameIdRef.current)
+    // Is the player with this color player A? (colors swap per game)
+    const sideIsPlayerA = game
+      ? (side === 'white') === (game.whitePlayerId === matchInfo?.playerAId)
+      : side === 'white'
+    const playerIdForSide = sideIsPlayerA ? matchInfo?.playerAId : matchInfo?.playerBId
+    const displayId = sideIsPlayerA ? game?.displayPlayerAId : game?.displayPlayerBId
+    return PROMPT_TEMPLATE
+      .replace('{PLAYER_ID}', displayId || playerIdForSide || `player-${side}`)
+      .replace(/\{COLOR_NOTE\}/g, COLOR_NOTES[side])
+      .replace(/\{COLOR\}/g, side)
       .replace('{TIME_CONTROL}', timeControl)
+      .replace(/\{API_URL\}/g, apiUrl)
+      .replace("{TOKEN}", (sideIsPlayerA ? tokenA : tokenB) || "<token-provided-separately>")
+  }
 
-  const copyPrompt = () => {
-    navigator.clipboard.writeText(getPrompt())
-    alert('Prompt copied to clipboard!')
+  const getPrompt = () => getPromptFor(promptSide)
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(getPrompt())
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+  }
+
+  const formatClock = (seconds: number | undefined, label: string) => {
+    if (seconds === undefined) return null
+    const low = seconds <= 30
+    return (
+      <p>
+        <small>{label}:{' '}
+          <span className={low ? 'clock-low' : undefined}>
+            {seconds}s{low ? ' — LOW TIME' : ''}
+          </span>
+        </small>
+      </p>
+    )
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2 space-y-4">
+    <div className="grid">
+      <div>
         {/* Chess Board */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          {gameState ? (
-            <div className="flex justify-center">
-              <ChessBoard fen={gameState.fen} size={400} />
+        {gameState ? (
+          <ChessBoard fen={gameState.fen} />
+        ) : (
+          <div className="board-empty">
+            <div>
+              <p style={{ fontSize: '3rem', margin: 0 }}>♟️</p>
+              <p>Enter a Match ID to connect</p>
+              <p><small>or create a match in Admin</small></p>
             </div>
-          ) : (
-            <div className="aspect-square max-w-lg mx-auto bg-gray-700 rounded flex items-center justify-center">
-              <div className="text-center text-gray-400">
-                <div className="text-6xl mb-4">♟️</div>
-                <p className="text-lg">Enter a Match ID to connect</p>
-                <p className="text-sm mt-2">or create a match in Admin</p>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Prompt for LLM */}
-        {gameState && playerId && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-bold">LLM Prompt</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowPrompt(!showPrompt)}
-                  className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
-                >
-                  {showPrompt ? 'Hide' : 'Show'}
-                </button>
-                <button
-                  onClick={copyPrompt}
-                  className="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded"
-                >
-                  Copy
-                </button>
-              </div>
+        {gameState && matchInfo?.playerAId && matchInfo?.playerBId && (
+          <article className="card">
+            <header>
+              <strong>LLM Prompt</strong>
+              <button className="button" data-variant="secondary" onClick={() => setShowPrompt(!showPrompt)} aria-expanded={showPrompt} style={{ float: 'right' }}>
+                {showPrompt ? 'Hide' : 'Show'}
+              </button>
+              <button className="button" onClick={copyPrompt} aria-live="polite" style={{ float: 'right' }}>
+                Copy
+              </button>
+            </header>
+            <fieldset role="radiogroup" aria-label="Prompt side">
+              <label style={{ marginRight: '1rem' }}>
+                <input
+                  type="radio"
+                  name="prompt-side"
+                  checked={promptSide === 'white'}
+                  onChange={() => setPromptSide('white')}
+                />{' '}
+                White — {matchInfo.games.find(g => g.id === gameIdRef.current)?.displayPlayerAId || 'Player A'}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="prompt-side"
+                  checked={promptSide === 'black'}
+                  onChange={() => setPromptSide('black')}
+                />{' '}
+                Black — {matchInfo.games.find(g => g.id === gameIdRef.current)?.displayPlayerBId || 'Player B'}
+              </label>
+            </fieldset>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <label>
+                <small>Player A token (Bearer)</small>
+                <input
+                  type="text"
+                  placeholder="paste playerAToken"
+                  value={tokenA}
+                  onChange={(e) => setTokenA(e.target.value)}
+                />
+              </label>
+              <label>
+                <small>Player B token (Bearer)</small>
+                <input
+                  type="text"
+                  placeholder="paste playerBToken"
+                  value={tokenB}
+                  onChange={(e) => setTokenB(e.target.value)}
+                />
+              </label>
             </div>
+            {copyState !== 'idle' && (
+              <p role="status">
+                <span className="badge" data-variant={copyState === 'copied' ? 'success' : 'danger'}>
+                  {copyState === 'copied'
+                    ? 'Prompt copied to clipboard.'
+                    : 'Copy failed — clipboard unavailable. Use "Show" and select manually.'}
+                </span>
+              </p>
+            )}
             {showPrompt && (
-              <pre className="bg-gray-900 p-4 rounded text-sm overflow-auto max-h-64 font-mono whitespace-pre-wrap">
+              <pre style={{ whiteSpace: 'pre-wrap', maxHeight: '16rem', overflow: 'auto' }}>
                 {getPrompt()}
               </pre>
             )}
             {!showPrompt && (
-              <p className="text-gray-400 text-sm">
-                Click "Show" to see the prompt for your LLM, or "Copy" to copy it directly.
-              </p>
+              <p><small>Click "Show" to see the prompt for your LLM, or "Copy" to copy it directly.</small></p>
             )}
-          </div>
+          </article>
         )}
       </div>
 
-      <div className="space-y-4">
+      <aside>
         {/* Game Info */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-bold">Game Info</h2>
-            <span className={`text-xs px-2 py-1 rounded ${wsConnected ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}`}>
-              {wsConnected ? '🟢 Live' : '🔴 Disconnected'}
+        <article className="card">
+          <header>
+            <strong>Game Info</strong>{' '}
+            <span className="badge" data-variant={wsConnected ? "success" : "danger"} role="status">
+              {wsConnected ? '● Live' : '○ Disconnected'}
             </span>
-          </div>
-          <div className="space-y-1 text-sm">
-            <p className="text-gray-400">Status: <span className="text-white">{status}</span></p>
-            {gameState && (
-              <>
-                <p className="text-gray-400">Turn: <span className="text-white capitalize">{gameState.turn}</span></p>
-                {gameState.clock.white !== undefined && (
-                  <p className="text-gray-400">White Clock: <span className="text-white">{gameState.clock.white}s</span></p>
-                )}
-                {gameState.clock.black !== undefined && (
-                  <p className="text-gray-400">Black Clock: <span className="text-white">{gameState.clock.black}s</span></p>
-                )}
-                {gameState.isCheck && <p className="text-red-400">Check!</p>}
-                {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
-                {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}
-                {gameState.isDraw && <p className="text-yellow-400">Draw</p>}
-              </>
-            )}
-          </div>
-        </div>
+          </header>
+          {!wsConnected && gameState && (
+            <p><small>Reconnecting automatically every {WS_RECONNECT_MS / 1000}s...</small></p>
+          )}
+          <p>Status: {status}</p>
+          {gameState && (
+            <>
+              <p>Turn: <span style={{ textTransform: 'capitalize' }}>{gameState.turn}</span></p>
+              {formatClock(gameState.clock.white, 'White Clock')}
+              {formatClock(gameState.clock.black, 'Black Clock')}
+              {gameState.isCheck && <p><span className="badge" data-variant="warning">⚠ Check</span></p>}
+              {gameState.isCheckmate && <p><mark>⚑ Checkmate!</mark></p>}
+              {gameState.isStalemate && <p><mark>Stalemate</mark></p>}
+              {gameState.isDraw && <p><mark>Draw</mark></p>}
+            </>
+          )}
+        </article>
 
         {/* Legal Moves */}
         {gameState?.legalMoves && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h2 className="text-lg font-bold mb-2">Legal Moves ({gameState.legalMoves.length})</h2>
-            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+          <article className="card">
+            <header><strong>Legal Moves ({gameState.legalMoves.length})</strong></header>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxHeight: '8rem', overflowY: 'auto' }}>
               {gameState.legalMoves.map((move, i) => (
-                <span key={i} className="bg-gray-700 px-2 py-1 rounded text-xs">{move}</span>
+                <code key={i}>{move}</code>
               ))}
             </div>
-          </div>
+          </article>
         )}
 
         {/* Moves */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h2 className="text-lg font-bold mb-2">Moves ({moves.length})</h2>
-          <div className="max-h-64 overflow-y-auto font-mono text-sm">
-            {moves.length === 0 ? (
-              <p className="text-gray-500">No moves yet</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-1">
-                {moves.map((move, i) => (
-                  <div key={i} className="flex">
-                    <span className="text-gray-500 w-8">{Math.floor(i / 2) + 1}.</span>
-                    <span>{move}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* WebSocket Events */}
-        {wsEvents.length > 0 && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h2 className="text-lg font-bold mb-2">Live Events ({wsEvents.length})</h2>
-            <div className="max-h-32 overflow-y-auto text-xs font-mono">
-              {wsEvents.slice(-10).map((ev, idx) => (
-                <div key={`${ev.type}-${idx}-${ev.move || ''}`} className="text-gray-400 border-b border-gray-700 py-1">
-                  <span className="text-blue-400">{ev.type}</span>
-                  {ev.move && <span className="text-green-400 ml-2">{ev.move}</span>}
-                  {ev.content && <span className="text-yellow-400 ml-2">"{ev.content}"</span>}
-                  {ev.result && <span className="text-red-400 ml-2">{ev.result}</span>}
+        <article className="card">
+          <header><strong>Moves ({moves.length})</strong></header>
+          {moves.length === 0 ? (
+            <p><small>No moves yet</small></p>
+          ) : (
+            <div className="scroll-y" style={{ maxHeight: '16rem' }}>
+              {moves.map((move, i) => (
+                <div key={i}>
+                  <small>{Math.floor(i / 2) + 1}.</small> {move}
                 </div>
               ))}
             </div>
-          </div>
+          )}
+        </article>
+
+        {/* WebSocket Events */}
+        {wsEvents.length > 0 && (
+          <article className="card">
+            <header><strong>Live Events ({wsEvents.length})</strong></header>
+            <div className="scroll-y" style={{ maxHeight: '8rem' }}>
+              {wsEvents.slice(-10).map((ev, idx) => (
+                <div key={`${ev.type}-${idx}-${ev.move || ''}`}>
+                  <code>{ev.type}</code>
+                  {ev.move && <code>{ev.move}</code>}
+                  {ev.content && <em>"{ev.content}"</em>}
+                  {ev.result && <del>{ev.result}</del>}
+                </div>
+              ))}
+            </div>
+          </article>
         )}
 
         {/* Connect */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h2 className="text-lg font-bold mb-2">Connect to Match</h2>
-          <input
-            type="text"
-            placeholder="Match ID (e.g., MATCH-1787585865651-702F59)"
-            value={matchId}
-            onChange={(evt) => setMatchId(evt.target.value)}
-            className="w-full bg-gray-700 rounded px-3 py-2 text-sm mb-2"
-          />
-          <button
-            onClick={connectToMatch}
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded px-3 py-2"
-          >
+        <article className="card">
+          <header><strong>Connect to Match</strong></header>
+          <label>
+            Match ID
+            <input
+              type="text"
+              placeholder="e.g., MATCH-1787585865651-702F59"
+              value={matchId}
+              onChange={(evt) => setMatchId(evt.target.value)}
+            />
+          </label>
+          <button className="button" onClick={connectToMatch} disabled={loading} aria-busy={loading}>
             {loading ? 'Connecting...' : 'Connect'}
           </button>
-          {error && <p className="mt-2 text-red-400 text-sm">{error}</p>}
-        </div>
-      </div>
+          {error && <p role="alert"><small>{error}</small></p>}
+        </article>
+      </aside>
     </div>
   )
 }

@@ -14,11 +14,12 @@
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/node": "^1.4.5",
-    "@llm-chess-arena/shared": "*",
+    "@llm-chess-arena/shared": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "better-sqlite3": "^13.0.3",
     "chess.js": "^1.0.0-beta.6",
+    "crossws": "^0.4.10",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.29",

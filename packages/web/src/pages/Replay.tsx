@@ -1,10 +1,10 @@
-// @ts-expect-error lint requires React import
-import React from "react"
 import { useState, useEffect, useMemo } from "react"
-import { useParams } from "react-router-dom"
+import { Link, useParams } from "react-router-dom"
 import { Chess } from "chess.js"
-import { getGameState, getMatch, type GameState } from "../lib/api"
+import { getGameState, getMatch, type GameState, type Match } from "../lib/api"
 import ChessBoard from "../components/ChessBoard"
+
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 export default function Replay() {
   const { gameId, matchId } = useParams()
@@ -13,16 +13,14 @@ export default function Replay() {
   const [currentMove, setCurrentMove] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [matchInfo, setMatchInfo] = useState<{
-    games?: { id: string; gameNumber: number; status: string; result: unknown }[]
-  } | null>(null)
+  const [matchInfo, setMatchInfo] = useState<Match | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       if (!matchId || !gameId) {
         if (!cancelled) {
-          setError("Missing matchId or gameId in URL")
+          setError("Missing matchId or gameId in URL — expected /replay/:matchId/:gameId")
           setLoading(false)
         }
         return
@@ -39,10 +37,11 @@ export default function Replay() {
           setGameState(state)
           setMoves(state.history)
           setCurrentMove(state.history.length)
+          setLoading(false)
         }
       } catch {
         if (!cancelled) {
-          setError("Failed to load game data")
+          setError("Failed to load game data. Check the match ID and try again.")
           setLoading(false)
         }
       }
@@ -54,7 +53,7 @@ export default function Replay() {
 
   // Build FEN history by replaying moves from initial position
   const fenHistory = useMemo(() => {
-    if (moves.length === 0) return ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"]
+    if (moves.length === 0) return [START_FEN]
 
     const chess = new Chess()
     const fens: string[] = [chess.fen()]
@@ -76,143 +75,116 @@ export default function Replay() {
   const game = matchInfo?.games?.find((g) => g.id === gameId)
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-400 text-lg">Loading game...</div>
-      </div>
-    )
+    return <p aria-busy="true">Loading game...</p>
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-red-400 text-lg">{error}</div>
-      </div>
+      <article className="card">
+        <p role="alert">{error}</p>
+        <button className="button" onClick={() => window.location.reload()}>Retry</button>{' '}
+        <Link to="/admin">
+          <button className="button" data-variant="outline">Create a new match</button>
+        </Link>
+      </article>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Game Replay</h2>
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <h2>Game Replay</h2>
         {game && (
-          <span className="text-sm text-gray-400">
+          <small>
             {`Game ${game.gameNumber} • ${game.status} • ${String(game.result) || "in progress"}`}
-          </span>
+          </small>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-4">
+      <div className="grid">
+        <div>
           {/* Chess Board */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="flex justify-center">
-              {fen ? (
-                <ChessBoard fen={fen} size={400} />
-              ) : (
-                <div className="aspect-square max-w-lg bg-gray-700 rounded flex items-center justify-center">
-                  <span className="text-6xl">♟️</span>
-                </div>
-              )}
-            </div>
-          </div>
+          {fen ? <ChessBoard fen={fen} /> : <div className="board-empty"><span>♟️</span></div>}
 
           {/* Move Navigation */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold">Navigation</h3>
-              <span className="text-sm text-gray-400">
-                Move {currentMove} of {moves.length}
-              </span>
-            </div>
-            <div className="flex gap-2 justify-center">
+          <article className="card">
+            <header>
+              <strong>Navigation</strong>{' '}
+              <small style={{ float: 'right' }}>Move {currentMove} of {moves.length}</small>
+            </header>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="button" onClick={() => setCurrentMove(0)} data-variant="outline">⏮ Start</button>
               <button
-                onClick={() => setCurrentMove(0)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-              >
-                ⏮ Start
-              </button>
-              <button
+                className="button"
                 onClick={() => setCurrentMove(Math.max(0, currentMove - 1))}
                 disabled={currentMove === 0}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm"
+                aria-label="Previous move"
+                title={currentMove === 0 ? "Already at the start" : undefined}
+                data-variant="outline"
               >
                 ◀ Prev
               </button>
               <button
+                className="button"
                 onClick={() => setCurrentMove(Math.min(moves.length, currentMove + 1))}
                 disabled={currentMove === moves.length}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded text-sm"
+                aria-label="Next move"
+                title={currentMove === moves.length ? "Already at the latest move" : undefined}
+                data-variant="outline"
               >
                 Next ▶
               </button>
-              <button
-                onClick={() => setCurrentMove(moves.length)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-              >
-                End ⏭
-              </button>
+              <button className="button" onClick={() => setCurrentMove(moves.length)} data-variant="outline">End ⏭</button>
             </div>
-          </div>
+          </article>
         </div>
 
-        <div className="space-y-4">
+        <aside>
           {/* Game Info */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h3 className="font-bold mb-2">Game Info</h3>
-            <div className="space-y-1 text-sm">
-              {gameState && (
-                <>
-                  <p className="text-gray-400">
-                    Turn: <span className="text-white capitalize">{gameState.turn}</span>
-                  </p>
-                  <p className="text-gray-400">
-                    White Clock: <span className="text-white">{gameState.clock.white}s</span>
-                  </p>
-                  <p className="text-gray-400">
-                    Black Clock: <span className="text-white">{gameState.clock.black}s</span>
-                  </p>
-                  {gameState.isCheck && <p className="text-red-400">Check!</p>}
-                  {gameState.isCheckmate && <p className="text-red-400 font-bold">Checkmate!</p>}
-                  {gameState.isStalemate && <p className="text-yellow-400">Stalemate</p>}
-                  {gameState.isDraw && <p className="text-yellow-400">Draw</p>}
-                </>
-              )}
-            </div>
-          </div>
+          <article className="card">
+            <h3>Game Info</h3>
+            {gameState && (
+              <>
+                <p><small>Turn: <span style={{ textTransform: 'capitalize' }}>{gameState.turn}</span></small></p>
+                {gameState.clock.white !== undefined && (
+                  <p><small>White Clock: {gameState.clock.white}s</small></p>
+                )}
+                {gameState.clock.black !== undefined && (
+                  <p><small>Black Clock: {gameState.clock.black}s</small></p>
+                )}
+                {gameState.isCheck && <p><mark>Check!</mark></p>}
+                {gameState.isCheckmate && <p><strong>⚑ Checkmate!</strong></p>}
+                {gameState.isStalemate && <p><mark>Stalemate</mark></p>}
+                {gameState.isDraw && <p><mark>Draw</mark></p>}
+              </>
+            )}
+          </article>
 
           {/* Moves List */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h3 className="font-bold mb-2">Moves ({moves.length})</h3>
-            <div className="max-h-96 overflow-y-auto font-mono text-sm">
-              {moves.length === 0 ? (
-                <p className="text-gray-500">No moves yet</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-1">
-                  {moves.map((move, idx) => (
-                    <div
-                      key={`${gameId}-move-${idx}`}
-                      className={`cursor-pointer px-2 py-1 rounded hover:bg-gray-700 ${
-                        idx === currentMove - 1
-                          ? "bg-blue-900 text-blue-200"
-                          : idx < currentMove
-                            ? "text-white"
-                            : "text-gray-600"
-                      }`}
-                      onClick={() => setCurrentMove(idx + 1)}
-                    >
-                      <span className="text-gray-500 w-8 inline-block">
-                        {Math.floor(idx / 2) + 1}.
-                      </span>
-                      {move}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          <article className="card">
+            <h3>Moves ({moves.length})</h3>
+            {moves.length === 0 ? (
+              <p><small>No moves yet</small></p>
+            ) : (
+              <nav className="moves-grid" aria-label="Jump to move">
+                {moves.map((move, idx) => (
+                  <a
+                    key={`${gameId}-move-${idx}`}
+                    href={`#${idx + 1}`}
+                    role="button"
+                    className={`move-btn ${idx === currentMove - 1 ? 'current' : idx < currentMove ? '' : 'future'}`}
+                    onClick={(e) => { e.preventDefault(); setCurrentMove(idx + 1) }}
+                    aria-label={`Jump to move ${idx + 1}: ${move}`}
+                    aria-current={idx === currentMove - 1 ? "true" : undefined}
+                  >
+                    <small>{Math.floor(idx / 2) + 1}.</small> {move}
+                  </a>
+                ))}
+              </nav>
+            )}
+          </article>
+        </aside>
       </div>
-    </div>
+    </>
   )
 }

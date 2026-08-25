@@ -1,37 +1,32 @@
-# Build stage
-FROM node:22-slim AS builder
+# Build/deps stage: install workspace dependencies with pnpm (lockfile-native).
+# Full bookworm image ships python3/make/g++ for better-sqlite3's source build
+# (the container has no apt access, so slim + apt-get is not an option).
+FROM node:22-bookworm AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json ./
-COPY packages/shared/package.json ./packages/shared/
-COPY packages/server/package.json ./packages/server/
-COPY packages/web/package.json ./packages/web/
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/server/package.json packages/server/
+COPY packages/web/package.json packages/web/
 
-# Install dependencies
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@11.23.0 --activate \
+ && pnpm install --frozen-lockfile
 
-# Copy source code
-COPY . .
-
-# Build packages
-RUN npm run build
-
-# Production stage
-FROM node:22-slim AS production
+# Runtime stage
+FROM node:22-bookworm-slim AS production
 WORKDIR /app
 
-# Copy built artifacts
-COPY --from=builder /app/packages/server/dist ./server/dist
-COPY --from=builder /app/packages/web/dist ./web/dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
+# Server entrypoints are TypeScript source, executed with nub (project runtime)
+RUN npm i -g nub@0.7.5
 
-# Create data directory
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nub.config.yaml ./
+COPY packages/shared ./packages/shared
+COPY packages/server ./packages/server
+
 RUN mkdir -p /app/data
 
-# Expose ports
-EXPOSE 3001 3000
+ENV NODE_ENV=production
+EXPOSE 3001
 
-# Start server
-CMD ["node", "packages/server/dist/index.js"]
+CMD ["nub", "packages/server/src/index.ts"]

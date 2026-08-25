@@ -41,6 +41,40 @@ describe('MatchEngine', () => {
     })
   })
 
+  describe('getMatchMetrics', () => {
+    it('should flag a hanging-queen recapture as a blunder (ADR-017)', () => {
+      const engine = new MatchEngine(),
+       match = engine.createMatch({
+        boardMode: 'assisted',
+        playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: '1.0' },
+        playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: '1.0' },
+        startingPosition: 'standard',
+        timeControl: '10+5',
+      })
+
+      const matchId = match.id,
+       gameId = match.games[0].id,
+       whiteId = match.playerAId,
+       blackId = match.playerBId
+
+      // 1. e4 e5 2. Qh5 g6 3. Qxg6?? fxg6 — white drops the queen
+      engine.makeMove(matchId, gameId, whiteId, 'e4')
+      engine.makeMove(matchId, gameId, blackId, 'e5')
+      engine.makeMove(matchId, gameId, whiteId, 'Qh5')
+      engine.makeMove(matchId, gameId, blackId, 'g6')
+      const queenTake = engine.makeMove(matchId, gameId, whiteId, 'Qxg6')
+      expect(queenTake.accepted).toBe(true)
+      const pawnRecapture = engine.makeMove(matchId, gameId, blackId, 'fxg6')
+      expect(pawnRecapture.accepted).toBe(true)
+
+      const metrics = engine.getMatchMetrics(matchId)
+      expect(metrics).not.toBeNull()
+      expect(metrics!.blunderRate).toBeGreaterThan(0)
+      // The blunder happened in a position where a capture was available
+      expect(metrics!.tacticalAccuracy).toBeLessThan(1)
+    })
+  })
+
   describe('game flow', () => {
     it('should allow making moves', () => {
       const engine = new MatchEngine(),

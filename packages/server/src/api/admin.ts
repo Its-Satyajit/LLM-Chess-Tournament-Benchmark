@@ -1,9 +1,29 @@
 import { Elysia, t } from 'elysia'
 import type { ModelConfig } from '@llm-chess-arena/shared'
+import { database } from '../services/database'
 
-const models: { id: string; name: string; provider: string; config: ModelConfig }[] = [],
+interface StoredModel {
+  id: string
+  name: string
+  provider: string
+  config: ModelConfig
+}
 
- adminRoutes = new Elysia({ prefix: '/api/admin' })
+// Loaded from SQLite on startup; every mutation is persisted
+const models: StoredModel[] = []
+
+void database.loadModels().then((loaded) => {
+  for (const m of loaded) {
+    models.push(m as StoredModel)
+  }
+  if (loaded.length > 0) {
+    console.log(`📦 Loaded ${loaded.length} models from database`)
+  }
+})
+
+const persist = () => void database.saveModels(models)
+
+const adminRoutes = new Elysia({ prefix: '/api/admin' })
   .get('/models', () => (
     {
       models: models.map(m => ({
@@ -27,6 +47,7 @@ const models: { id: string; name: string; provider: string; config: ModelConfig 
       name: body.name,
       provider: body.provider,
     })
+    persist()
     return { id, name: body.name, provider: body.provider }
   }, {
     body: t.Object({
@@ -41,6 +62,7 @@ const models: { id: string; name: string; provider: string; config: ModelConfig 
     const index = models.findIndex(m => m.id === params.modelId)
     if (index === -1) {return { error: 'Model not found' }}
     models.splice(index, 1)
+    persist()
     return { success: true }
   })
 

@@ -97,3 +97,20 @@ export function initializeDatabase(): void {
 }
 
 export { schema }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id),
+      sender TEXT NOT NULL,
+      content TEXT NOT NULL,
+      timestamp INTEGER NOT NULL
+    )
+  `)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS models (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      config TEXT NOT NULL
+    )
+  `)

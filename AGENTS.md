@@ -1,5 +1,9 @@
 # Agents
 
+## Runtime & toolchain
+
+Prefer `nub` over `node`/`bun`/package managers — scripts: `nub run <script>`, files: `nub <file>`, local CLIs: `nubx <tool>`, installs: `nub install` / `nub add`. The existing lockfile is respected; use `nub --node <file>` for strict, unaugmented Node.
+
 ## Agent skills
 
 ### Issue tracker

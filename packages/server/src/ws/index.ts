@@ -1,4 +1,5 @@
-import { Elysia, t } from 'elysia'
+import { Elysia } from 'elysia'
+import { node } from '@elysiajs/node'
 import type { EventData } from '@llm-chess-arena/shared'
 
 // SAFETY: WebSocket connections are managed by ElysiaJS WS handler
@@ -29,17 +30,27 @@ export function getClientCount(matchId: string): number {
   return rooms.get(matchId)?.size ?? 0
 }
 
-export const wsRoutes = new Elysia()
-  .ws('/ws', {
-    body: t.Object({
-      type: t.String(),
-      matchId: t.Optional(t.String()),
-    }),
+// The node adapter instance must be SHARED with the root app — a child
+// Elysia mounted with its own adapter instance silently drops .ws() routes.
+export const nodeAdapter = node()
+
+export const wsRoutes = new Elysia({ adapter: nodeAdapter })
+  .ws("/ws", {
+    // NOTE: the Node adapter delivers raw strings (no auto-JSON like Bun),
+    // so the body schema is omitted and message() parses explicitly.
     open(ws) {
       wsSubscriptions.set(ws, new Set())
     },
-    message(ws, body) {
-      if (body.type === 'subscribe' && body.matchId) {
+    message(ws, raw) {
+      let body: { type?: string; matchId?: string } = {}
+      try {
+        // SAFETY: clients send stringified JSON per the documented protocol
+        body = JSON.parse(String(raw)) as { type?: string; matchId?: string }
+      } catch {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid JSON" }))
+        return
+      }
+      if (body.type === "subscribe" && body.matchId) {
         const matchId = body.matchId
         const subs = wsSubscriptions.get(ws) || new Set()
 
@@ -62,7 +73,7 @@ export const wsRoutes = new Elysia()
           matchId,
           message: `Subscribed to match ${matchId}`,
         }))
-      } else if (body.type === 'unsubscribe' && body.matchId) {
+      } else if (body.type === "unsubscribe" && body.matchId) {
         const matchId = body.matchId
         rooms.get(matchId)?.delete(ws)
         wsSubscriptions.get(ws)?.delete(matchId)

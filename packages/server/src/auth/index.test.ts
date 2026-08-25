@@ -11,7 +11,6 @@ describe('Auth', () => {
   describe('JWT tokens', () => {
     it('generates a valid token', () => {
       const token = generatePlayerToken('player-1', 'match-1')
-      expect(typeof token).toBe('string')
       expect(token.split('.')).toHaveLength(3)
     })
 

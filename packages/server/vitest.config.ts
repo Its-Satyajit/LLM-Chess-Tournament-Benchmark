@@ -6,6 +6,10 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["src/**/*.test.ts",],
+    // Keep tests off the real database — clearAll() in tests would wipe it
+    env: {
+      DATABASE_URL: "./data/test-db.sqlite",
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html",],

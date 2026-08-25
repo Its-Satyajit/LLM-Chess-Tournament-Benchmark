@@ -3,6 +3,7 @@ import { ChessGame } from '../chess/ChessGame'
 import type { EventData, ModelConfig } from '@llm-chess-arena/shared'
 import { LIMITS } from '@llm-chess-arena/shared'
 import { randomBytes } from 'crypto'
+import { Chess } from 'chess.js'
 
 // Types
 export interface MatchConfig {
@@ -30,6 +31,13 @@ export interface Match {
   createdAt: Date
   completedAt: Date | null
   isPrivate: boolean
+}
+
+// Blunder/tactical analysis over replayed game history (ADR-017)
+export interface GameAnalysis {
+  blunders: number
+  tacticalBlunders: number
+  tacticalMoves: number
 }
 
 export interface Game {
@@ -78,7 +86,7 @@ export interface MoveResult {
 }
 
 export interface GameStateResponse {
-  clock: { black: number; white: number | undefined } | { black: number | undefined; white: number }
+  clock: { black?: number; white?: number }
   fen: string
   history: string[]
   isCheck: boolean
@@ -318,7 +326,8 @@ export class MatchEngine {
     const state = game.chessGame.getGameState(),
      legalMoves = game.chessGame.getLegalMoves()
 
-    // ADR-005: Only show requesting player's clock, never opponent's
+    // ADR-005: Only show requesting player's clock, never opponent's;
+    // unauthenticated spectators see neither
     let clock: GameStateResponse['clock']
     if (playerId) {
       const isWhite = playerId === game.whitePlayerId
@@ -326,11 +335,7 @@ export class MatchEngine {
         ? { black: undefined, white: game.clock.getWhiteTime() }
         : { black: game.clock.getBlackTime(), white: undefined }
     } else {
-      // Public/spectator view: show both clocks
-      clock = {
-        black: game.clock.getBlackTime(),
-        white: game.clock.getWhiteTime(),
-      }
+      clock = { black: undefined, white: undefined }
     }
 
     return {
@@ -779,6 +784,18 @@ export class MatchEngine {
     }
   }
 
+  // Restore persisted events on startup so /events and metrics survive restarts
+  restoreEvents(events: Array<{
+    matchId: string
+    gameId: string
+    eventType: string
+    playerId: string
+    data: EventData
+    timestamp: Date
+  }>): void {
+    this.events.push(...events)
+  }
+
   addGame(game: Game): void {
     this.games.set(game.id, game)
   }
@@ -848,11 +865,14 @@ export class MatchEngine {
     }
     const avgResponseTime = responseCount > 0 ? totalResponseTime / responseCount : 0
 
-    // blunderRate: illegal moves / total attempts (simplified — no eval available)
-    const blunderRate = totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0
-
-    // tacticalAccuracy: successful moves / total attempts (inverse of blunder rate)
-    const tacticalAccuracy = totalAttempts > 0 ? moves.length / totalAttempts : 1
+    // blunderRate + tacticalAccuracy per ADR-017: material-eval swings over
+    // replayed game history (300cp blunder threshold; tactical moment =
+    // a capture was available to the mover)
+    const { blunders, tacticalMoves, tacticalBlunders } = this.analyseGames(match)
+    const totalMoveCount = moves.length
+    const blunderRate = totalMoveCount > 0 ? blunders / totalMoveCount : 0
+    const tacticalAccuracy =
+      tacticalMoves > 0 ? (tacticalMoves - tacticalBlunders) / tacticalMoves : 1
 
     return {
       avgMovesPerGame: moves.length / (completedGames.length || 1),
@@ -871,5 +891,101 @@ export class MatchEngine {
       totalTimeouts: timeouts.length,
       whiteWinRate: results.white_win / total,
     }
+  }
+
+  // Piece values in centipawns for the eval heuristic
+  static readonly PIECE_CP = {
+    p: 100, n: 320, b: 330, r: 500, q: 900, k: 0,
+    P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0,
+  } as const
+
+  // Simplified piece-square tables (white perspective, a8..h1 row-major to
+  // match chess.js board()); black mirrors by negating the table index.
+  // Values encourage centralisation and advancement per standard heuristics.
+  static readonly PST = {
+    p: [0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5, 5, 10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10, 0, 0, -10, -5, 5, 5, 10, 10, -20, -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+    n: [-50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15, 10, 0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15, 15, 10, 5, -30, -40, -20, 0, 5, 5, 0, -20, -40, -50, -40, -30, -30, -30, -30, -40, -50],
+    b: [-20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 10, 10, 5, 0, -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0, -10, -10, 10, 10, 10, 10, 10, 10, -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10, -10, -10, -10, -10, -10, -20],
+    r: [0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, 0, 0, 0, 5, 5, 0, 0, 0],
+    q: [-20, -10, -10, -5, -5, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 5, 5, 5, 0, -10, -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0, 5, 0, 0, 0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20],
+    k: [-30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40, -40, -30, -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0, 10, 30, 20],
+  } as const
+
+  // Static eval from white's perspective in centipawns:
+  // material + piece-square tables + mobility (10cp per legal move).
+  private evaluateCp(chess: Chess): number {
+    let cp = 0
+    const board = chess.board()
+    for (let rank = 0; rank < 8; rank++) {
+      for (let file = 0; file < 8; file++) {
+        const square = board[rank][file]
+        if (!square) continue
+        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PIECE_CP
+        const type = square.type as keyof typeof MatchEngine.PIECE_CP
+        const material = MatchEngine.PIECE_CP[type] ?? 0
+        // SAFETY: square.type is a chess.js PieceSymbol, always a key of PST
+        const table = MatchEngine.PST[square.type as keyof typeof MatchEngine.PST]
+        const index = square.color === 'w' ? rank * 8 + file : (7 - rank) * 8 + file
+        const positional = table ? table[index] : 0
+        const signed = material + positional
+        cp += square.color === 'w' ? signed : -signed
+      }
+    }
+    cp += 10 * Math.cbrt(chess.moves().length)
+    return cp
+  }
+
+  // Replay each game's move history with chess.js and score eval swings using
+  // the static eval (material + piece-square tables + mobility).
+  // A blunder is attributed to a move when the eval (from the mover's
+  // perspective) drops by >= 300cp once the opponent has replied — this is
+  // what makes hanging material visible (e.g. Qxg6?? fxg6).
+  // A tactical moment is a position where the mover had at least one capture;
+  // a tactical blunder is a blunder committed in such a position.
+  private analyseGames(match: Match): GameAnalysis {
+    let blunders = 0
+    let tacticalMoves = 0
+    let tacticalBlunders = 0
+
+    for (const game of match.games) {
+      const history = game.chessGame.getGameState().history
+      if (history.length < 2) continue
+
+      const replay = new Chess()
+      const BLUNDER_CP = 300
+
+      // evals[i] = static eval (white perspective) before move i;
+      // hadCapture[i] = a capture was available to the mover of move i.
+      const movers: Array<'w' | 'b'> = []
+      const evals: number[] = []
+      const hadCapture: boolean[] = []
+
+      for (const san of history) {
+        movers.push(replay.turn())
+        evals.push(this.evaluateCp(replay))
+        hadCapture.push(replay.moves({ verbose: true }).some(m => m.captured !== undefined))
+
+        try {
+          if (!replay.move(san)) break
+        } catch {
+          break
+        }
+      }
+      evals.push(this.evaluateCp(replay))
+
+      // Attribute each move's outcome over itself + the opponent's reply.
+      for (let i = 0; i < movers.length - 1; i++) {
+        const swing = movers[i] === 'w'
+          ? evals[i + 2] - evals[i]
+          : evals[i] - evals[i + 2]
+        if (swing <= -BLUNDER_CP) {
+          blunders++
+          if (hadCapture[i]) tacticalBlunders++
+        }
+        if (hadCapture[i]) tacticalMoves++
+      }
+    }
+
+    return { blunders, tacticalBlunders, tacticalMoves }
   }
 }

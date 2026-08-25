@@ -7,7 +7,10 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=./data/db.sqlite
+      - DATABASE_URL=/app/data/db.sqlite
+      # CHANGE THIS for any real deployment — the server refuses to start
+      # in production without it (see src/auth/index.ts)
+      - JWT_SECRET=change-me-in-production
     volumes:
       - server-data:/app/data
     restart: unless-stopped

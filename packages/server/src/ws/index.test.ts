@@ -14,6 +14,7 @@ import {
 describe('WebSocket', () => {
   // Mock WebSocket connections
   function createMockWs() {
+    // SAFETY: test double only needs the send/data surface the WS handlers touch
     return {
       send: vi.fn(),
       data: { subscriptions: new Set<string>() },
@@ -47,51 +48,38 @@ describe('WebSocket', () => {
   describe('broadcastMoveMade', () => {
     it('sends correct event format', () => {
       // Since we can't easily mock the rooms Map, we verify the function exists and is callable
-      expect(typeof broadcastMoveMade).toBe('function')
       expect(() => broadcastMoveMade('m1', 'g1', 'e4', 'p1', { white: 300, black: 295 })).not.toThrow()
     })
   })
 
   describe('broadcastMessageSent', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastMessageSent).toBe('function')
-      expect(() => broadcastMessageSent('m1', 'g1', 'p1', 'Hello!')).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastMessageSent('m1', 'g1', 'p1', 'Hello!')).not.toThrow()
     })
   })
 
   describe('broadcastDrawOffer', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastDrawOffer).toBe('function')
-      expect(() => broadcastDrawOffer('m1', 'g1', 'p1')).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastDrawOffer('m1', 'g1', 'p1')).not.toThrow()
     })
   })
 
   describe('broadcastDrawResult', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastDrawResult).toBe('function')
-      expect(() => broadcastDrawResult('m1', 'g1', true)).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastDrawResult('m1', 'g1', true)).not.toThrow()
       expect(() => broadcastDrawResult('m1', 'g1', false)).not.toThrow()
     })
   })
 
   describe('broadcastGameOver', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastGameOver).toBe('function')
-      expect(() => broadcastGameOver('m1', 'g1', 'white_win', 'checkmate')).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastGameOver('m1', 'g1', 'white_win', 'checkmate')).not.toThrow()
     })
   })
 
   describe('broadcastMatchOver', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastMatchOver).toBe('function')
-      expect(() => broadcastMatchOver('m1', 'white_win')).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastMatchOver('m1', 'white_win')).not.toThrow()
     })
   })
 
   describe('broadcastStateUpdate', () => {
-    it('sends correct event format', () => {
-      expect(typeof broadcastStateUpdate).toBe('function')
-      expect(() => broadcastStateUpdate('m1', 'g1', { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', turn: 'white' })).not.toThrow()
+    it('sends correct event format', () => {      expect(() => broadcastStateUpdate('m1', 'g1', { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', turn: 'white' })).not.toThrow()
     })
   })
 
@@ -105,7 +93,8 @@ describe('WebSocket', () => {
     it('MatchEngine has onEvent method', async () => {
       const { MatchEngine } = await import('../game/MatchEngine')
       const engine = new MatchEngine()
-      expect(typeof engine.onEvent).toBe('function')
+      // Calling it is the assertion — it must exist and be invocable
+      expect(() => engine.onEvent(() => {})).not.toThrow()
     })
 
     it('MatchEngine calls listener on move', async () => {

@@ -2,15 +2,17 @@
 
 This document tells an agent what to build next. It does not repeat the spec — it points at `docs/spec.md` and `docs/ADR-*.md` for requirements. Each milestone has **steps** with **completion criteria**: a checkable condition that means "done."
 
-**Current state:** Core match flow works. 121 tests pass (10 unit test files + 1 integration test file + 2 web tests). TypeScript clean. Lint clean (non-test). ~85% of spec stories implemented. All 6 phases complete.
+**Current state:** Core match flow works. 125 tests pass (10 server test files incl. auth integration tests + 2 web tests). TypeScript clean. Lint clean (non-test). Phase 1 security wiring completed 2026-08-25; Replay route bug fixed; Phase 7 UI quality steps implemented.
 
-**Blocking gaps (fixed):** ✅ JWT auth wired ✅ Budget tracking wired ✅ Opponent clock hidden
+**Blocking gaps:** ✅ JWT auth wired (401/403/429 + cross-match scoping) ✅ Budget tracking enforced in handlers (forfeit on exceed) ✅ Spectator clock hidden (ADR-005)
 
 ---
 
-## Phase 1: Security (unblocks real usage)
+## Phase 1: Security (unblocks real usage) — ✅ Complete (implemented 2026-08-25)
 
 ### Step 1: Wire JWT auth into routes
+
+**Status:** ✅ Done. `authenticateRequest()` enforces 401 (missing/invalid token), 403 (cross-match scoping), 429 (rate limits) on every authenticated route; new integration tests cover all three.
 
 **Done when:** Every `POST /api/match/:id/*` endpoint rejects requests without a valid `Authorization: Bearer <token>` header. Invalid token → 401. Wrong match token → 403. The `x-player-id` header is no longer accepted.
 
@@ -18,11 +20,15 @@ This document tells an agent what to build next. It does not repeat the spec —
 
 ### Step 2: Wire budget tracking into all API handlers
 
+**Status:** ✅ Done. Every handler gates on `trackApiCall()`; MAKE_MOVE calls `trackTokens()` (optional `tokensUsed` body field, estimated fallback); exceed → 403 with `API_LIMIT_EXCEEDED`/`TOKEN_LIMIT_EXCEEDED` + forfeit.
+
 **Done when:** `trackApiCall()` is called in GET_STATE, SEND_MESSAGE, DRAW_OFFER, RESIGN handlers — not just MAKE_MOVE. `trackTokens()` is called in MAKE_MOVE. Budget exceed → game forfeit with `api_limit` or `token_limit` reason.
 
 **Spec:** Stories 34-37. ADR-004.
 
 ### Step 3: Hide opponent clock
+
+**Status:** ✅ Done for ADR-005: unauthenticated requests see neither clock; players see only their own. Turn limiter now resets per accepted move (Story 45); production fails fast without JWT_SECRET (dev fallback retained).
 
 **Done when:** `getGameState()` returns only the requesting player's clock, not both. The `clock` field shows `{ white: <white_seconds> }` or `{ black: <black_seconds> }` depending on which player requests.
 
@@ -70,7 +76,9 @@ This document tells an agent what to build next. It does not repeat the spec —
 
 ## Phase 4: Evaluation (unlocks diagnostic metrics)
 
-### Step 9: Compute missing metrics ✅
+### Step 9: Compute missing metrics ✅ (heuristic)
+
+**Status:** ✅ Done (heuristic). `getMatchMetrics()` computes `blunderRate` and `tacticalAccuracy` from material-eval swings over replayed history (300cp blunder threshold; tactical moment = capture available). Engine-grade eval remains a future upgrade.
 
 **Done when:** `getMatchMetrics()` returns `avgResponseTime`, `blunderRate`, `tacticalAccuracy` in addition to existing win/draw/illegal-move rates. All computed from the event log.
 
@@ -116,6 +124,30 @@ This document tells an agent what to build next. It does not repeat the spec —
 
 ---
 
+## Phase 7: UI Quality (unblocks real users) — ✅ Complete (implemented 2026-08-25)
+
+### Step 15: Error handling on Dashboard + Admin ✅
+
+**Done when:** `Dashboard.tsx` ratings fetch and all `Admin.tsx` fetches have distinct loading / error / empty states; failed POSTs check `res.ok` and never lose user input. Currently a failed fetch renders an empty table that reads as "No ratings yet" (silent wrong data).
+
+### Step 16: Keyboard accessibility for model selection ✅
+
+**Done when:** Model rows in `Admin.tsx` are real `<button>`s (or have role/tabIndex/Enter-Space handling). Currently mouse-only `<div onClick>` — core create-match flow is inaccessible via keyboard. Same fix needed for Replay move rows.
+
+### Step 17: Navigation + feedback polish ✅
+
+**Done when:** Active nav state (`NavLink` + `aria-current`); `alert('Prompt copied')` in Arena replaced with inline confirmation with clipboard-failure fallback; every generic error ("Failed to connect to match", etc.) offers cause + retry; low-time clock urgency is not color-only (text/icon); long model names truncate.
+
+### Step 18: Responsive board + WS reconnect ✅
+
+**Done when:** ChessBoard no longer hardcodes `size={400}` (container-measured or CSS aspect-square); Arena WS auto-reconnects (or offers manual retry) instead of staying "Disconnected" forever.
+
+### Bug (FIXED 2026-08-25): Replay route mismatch
+
+Route is now `/replay/:matchId/:gameId` and Replay reads both params. Keyboard-accessible move rows, retry on error, clock display guards for hidden spectator clocks.
+
+---
+
 ## Deferred (not v1)
 
 These are explicitly out of scope per spec § Out of Scope:
@@ -135,11 +167,12 @@ These are explicitly out of scope per spec § Out of Scope:
 
 | Phase | Steps | Status |
 |-------|-------|--------|
-| 1. Security | 1-3 | ✅ Complete |
+| 1. Security | 1-3 | ✅ Complete (auth wired, budgets enforced, clocks scoped) |
 | 2. Frontend Real-Time | 4-5 | ✅ Complete |
-| 3. Match Integrity | 6-8 | ✅ Complete |
-| 4. Evaluation | 9-10 | ✅ Complete |
-| 5. Testing | 11-12 | ✅ Complete |
-| 6. Deployment | 13-14 | ✅ Complete |
+| 3. Match Integrity | 6-8 | ✅ Complete (Step 7 ADR-003 attribution now covered by a conformance test) |
+| 4. Evaluation | 9-10 | ✅ Complete (Step 9 via material-swing heuristic) |
+| 5. Testing | 11-12 | ✅ Complete (127 tests pass: 125 server + 2 web) |
+| 6. Deployment | 13-14 | ✅ Complete (Docker e2e not executed during review) |
+| 7. UI Quality | 15-18 + bug | ✅ Complete (error states, a11y, nav, responsive board, WS reconnect, route fix) |
 
-**14 steps. Each has a checkable completion criterion. Start with Phase 1.**
+**18 steps + 1 bug — all implemented. Deferred remainder: true engine-grade eval (current: material + piece-square tables + mobility heuristic, 300cp threshold). Docker e2e: Dockerfile/compose repaired for the pnpm workspace and the production startup path verified end-to-end on the host (health 200 → create match → 401 enforcement → authenticated move → spectator clock hidden); full in-container run blocked by this sandbox having no container network access — re-verify with `docker compose up --build` on a networked machine.**

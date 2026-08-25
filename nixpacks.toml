@@ -1,0 +1,14 @@
+# Nixpacks config for Dokploy/Railway-style deploys.
+# The server entrypoint is TypeScript source, executed with nub (project runtime).
+
+[phases.setup]
+nixPkgs = ["nodejs_24", "pnpm-9_x", "openssl"]
+
+[phases.install]
+cmd = "pnpm install --frozen-lockfile"
+
+[phases.build]
+cmd = "pnpm run build"
+
+[start]
+cmd = "npx -y nub@0.7.5 packages/server/src/index.ts"

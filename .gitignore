@@ -12,3 +12,4 @@ node_modules
 packages/server/node_modules
 packages/shared/node_modules
 packages/web/node_modules
+skills/chess-arena-player/scripts/config.json
