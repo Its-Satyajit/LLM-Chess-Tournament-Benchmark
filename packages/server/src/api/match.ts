@@ -5,11 +5,12 @@ import {
   rateLimiter,
   turnRateLimiter,
 } from '../auth'
-import { DatabaseService } from '../services/database'
+const engine = database.getEngine()
+
+import { database } from '../services/database'
 import type { ModelConfig } from '@llm-chess-arena/shared'
 
-const database = new DatabaseService(),
-  engine = database.getEngine()
+
 
 // Persist the latest game state and most recent event after any mutation
 function persistTurn(matchId: string): void {

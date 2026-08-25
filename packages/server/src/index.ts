@@ -1,16 +1,16 @@
 import { Elysia } from 'elysia'
-import { node } from '@elysiajs/node'
 import { cors } from '@elysiajs/cors'
 import matchRoutes from './api/match'
 import tournamentRoutes from './api/tournament'
 import ratingsRoutes from './api/ratings'
 import adminRoutes from './api/admin'
 import manifestRoutes from './api/manifest'
-import { wsRoutes, broadcastMoveMade, broadcastMessageSent, broadcastDrawOffer, broadcastDrawResult, broadcastGameOver } from './ws'
-import { DatabaseService } from './services/database'
+import { nodeAdapter, wsRoutes, broadcastMoveMade, broadcastMessageSent, broadcastDrawOffer, broadcastDrawResult, broadcastGameOver } from './ws'
+import { database } from './services/database'
 
-// Initialize database and load persisted state
-const database = new DatabaseService()
+// Initialize database and load persisted state.
+// NOTE: this MUST be the shared singleton — api/match.ts uses the same
+// instance, so engine events (moves, messages) flow to the WS broadcaster.
 database.loadMatches().then(() => {
   console.log('📦 Loaded persisted matches from database')
 }).catch((error) => {
@@ -55,7 +55,7 @@ engine.onEvent((event) => {
   }
 })
 
-const app = new Elysia({ adapter: node() })
+const app = new Elysia({ adapter: nodeAdapter })
   .use(cors())
   .get('/', () => ({ service: 'llm-chess-arena', status: 'ok' }))
   .get('/health', () => ({ status: 'healthy' }))
