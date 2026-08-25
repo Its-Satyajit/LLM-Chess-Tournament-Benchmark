@@ -2,23 +2,18 @@
   "name": "llm-chess-arena",
   "version": "0.1.0",
   "private": true,
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.23.0",
-      "onFail": "warn"
-    }
-  },
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"nub run dev:server\" \"nub run dev:web\"",
     "dev:server": "PORT=3001 nub watch packages/server/src/index.ts",
     "dev:web": "cd packages/web && nubx vite",
-    "build": "cd packages/server && tsc && cd ../web && vite build",
+    "build": "pnpm run build:server && pnpm run build:web",
     "test": "cd packages/server && nubx vitest run && cd ../web && nubx vitest run",
     "lint": "nubx oxlint packages/*/src",
     "lint:fix": "nubx oxlint --fix packages/*/src",
     "typecheck": "cd packages/server && tsc --noEmit && cd ../web && tsc --noEmit",
-    "start": "npx -y nub@0.7.5 packages/server/src/index.ts"
+    "start": "npx -y nub@0.7.5 packages/server/src/index.ts",
+    "build:server": "cd packages/server && tsc",
+    "build:web": "cd packages/web && pnpm exec vite build"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
