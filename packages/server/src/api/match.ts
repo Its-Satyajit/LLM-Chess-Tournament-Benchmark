@@ -12,16 +12,14 @@ import type { ModelConfig } from '@llm-chess-arena/shared'
 
 
 
-// Persist the latest game state and most recent event after any mutation
+// Persist the latest game state, any new events, and chat messages
 function persistTurn(matchId: string): void {
   const game = engine.getCurrentGame(matchId)
   if (game) {
     database.saveGame(game)
+    void database.saveMessages(game.id, game.messages)
   }
-  const events = engine.getEvents(matchId)
-  for (const event of events.slice(-1)) {
-    database.saveEvent(event)
-  }
+  void database.saveNewEvents(matchId)
 }
 
 // --- Auth + rate-limit + budget gate for authenticated player routes ---
@@ -102,6 +100,7 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
     })
 
     await database.saveMatch(match)
+    void database.saveNewEvents(match.id) // persist the match_created event
 
     return {
       games: match.games.map(g => ({

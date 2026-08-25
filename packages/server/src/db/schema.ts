@@ -44,8 +44,7 @@ export const events = sqliteTable('events', {
   timestamp: integer('timestamp', { mode: 'timestamp' }).notNull(),
 })
 
-export const ratings = sqliteTable('ratings', {
-  gamesPlayed: integer('games_played').notNull().default(0),
+export const ratings = sqliteTable('ratings', {  gamesPlayed: integer('games_played').notNull().default(0),
   glickoRating: real('glicko_rating').notNull().default(1500),
   glickoRd: real('glicko_rd').notNull().default(350),
   glickoVolatility: real('glicko_volatility').notNull().default(0.06),
@@ -73,4 +72,19 @@ export const tournamentEntries = sqliteTable('tournament_entries', {
   provider: text('provider').notNull(),
   tournamentId: text('tournament_id').notNull().references(() => tournaments.id),
   wins: integer('wins').notNull().default(0),
+})
+
+export const messages = sqliteTable('messages', {
+  content: text('content').notNull(),
+  gameId: text('game_id').notNull().references(() => games.id),
+  id: text('id').primaryKey(),
+  sender: text('sender').notNull(),
+  timestamp: integer('timestamp', { mode: 'timestamp' }).notNull(),
+})
+
+export const models = sqliteTable('models', {
+  config: text('config').notNull(), // JSON string (ModelConfig)
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  provider: text('provider').notNull(),
 })

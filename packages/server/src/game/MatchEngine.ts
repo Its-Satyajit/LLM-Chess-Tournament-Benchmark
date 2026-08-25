@@ -784,6 +784,18 @@ export class MatchEngine {
     }
   }
 
+  // Restore persisted events on startup so /events and metrics survive restarts
+  restoreEvents(events: Array<{
+    matchId: string
+    gameId: string
+    eventType: string
+    playerId: string
+    data: EventData
+    timestamp: Date
+  }>): void {
+    this.events.push(...events)
+  }
+
   addGame(game: Game): void {
     this.games.set(game.id, game)
   }
