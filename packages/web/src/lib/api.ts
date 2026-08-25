@@ -16,6 +16,8 @@ export interface Match {
     result: { winner: string; reason: string } | null
     moveCount: number
     whitePlayerId?: string
+    displayPlayerAId?: string
+    displayPlayerBId?: string
   }[]
 }
 
@@ -43,7 +45,7 @@ export interface Rating {
   points: number
 }
 
-export async function createMatch(playerAModel: ModelConfig, playerBModel: ModelConfig): Promise<{ matchId: string; playerAId: string; playerBId: string; games: { id: string }[] }> {
+export async function createMatch(playerAModel: ModelConfig, playerBModel: ModelConfig): Promise<{ matchId: string; playerAId: string; playerBId: string; playerAToken: string; playerBToken: string; games: { id: string }[] }> {
   const res = await fetch(`${API_BASE}/match/create`, {
     body: JSON.stringify({ playerAModel, playerBModel, timeControl: '10+5', startingPosition: 'standard', boardMode: 'assisted' }),
     headers: { 'Content-Type': 'application/json' },

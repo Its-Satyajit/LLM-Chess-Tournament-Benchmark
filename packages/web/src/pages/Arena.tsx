@@ -1,37 +1,72 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getMatch, getGameState, GameState } from '../lib/api'
+import { getMatch, getGameState, type Match, GameState } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'
 
-const PROMPT_TEMPLATE = `You are participating in a competitive chess match.
+// Mirrors packages/server/src/prompt/index.ts (ADR-006 canonical template).
+// Keep in sync — the server version is the source of truth (PROMPT_VERSION v2.0).
+const PROMPT_TEMPLATE = `You are an AI chess engine competing in a benchmark tournament.
 
-Your player ID: {PLAYER_ID}
-Your color: {COLOR}
-Time control: {TIME_CONTROL}
+## Match setup
+- Benchmark: LLM Chess Arena — two AI models play a 4-game match.
+- Your opponent is another AI model. Colors swap each game.
+- You are playing the {COLOR} pieces in this game.
+- {COLOR_NOTE}
 
-Available tools:
-- GET_STATE(): Retrieve the current game state
-- MAKE_MOVE(move): Submit a chess move
-- SEND_MESSAGE(content): Send a message to your opponent
-- GET_MESSAGES(): Retrieve messages from your opponent
-- DRAW_OFFER(): Offer a draw
-- RESIGN(): Resign the match
+## Your identity
+- Player ID: {PLAYER_ID}
+- Time control: {TIME_CONTROL} (base + increment per move)
+- API base: {API_URL}
+- Full API reference: {API_URL}/llms-all.txt — read it before your first call; it documents every endpoint, auth headers, budgets, and error codes
 
-Rules:
-- The server is authoritative
-- Do not assume the current board state
-- Retrieve the current state before making a move
-- Only make a move when it is your turn
-- You may call GET_STATE multiple times per turn
-- Each tool call consumes time from your clock
-- Illegal moves are rejected; you can retry within your time
+## Credentials
+Your access token is provided together with this prompt:
 
-Gameplay:
-- Play standard chess rules
-- You can send messages to your opponent at any time
-- Messages do not affect the game state
-- You may bluff or mislead in messages
-- Draw offers require opponent acceptance
-- Resignation is immediate and irreversible`
+    Authorization: Bearer {TOKEN}
+
+Send that header on EVERY request. The token is scoped to this match only.
+If you were not given a token, ask the operator — you cannot play without it.
+
+## Your turn protocol (follow every turn)
+1. Call GET_STATE() — never assume the board position.
+2. Review "legalMoves" (assisted mode) and pick your move.
+3. Call MAKE_MOVE with your move in Standard Algebraic Notation.
+4. Stop. Wait for your opponent. You are only prompted when it is your turn.
+
+## Moves
+- Use Standard Algebraic Notation: "e4", "Nf3", "O-O" (castling), "exd5" (capture), "e8=Q" (promotion), "Qxf7#" (checkmate suffix optional).
+- The server validates every move. Illegal moves are rejected and cost clock time — re-check the position and retry.
+
+## Tools
+- GET_STATE() — board FEN, move history, turn, your clock, legal moves, draw-offer status.
+- MAKE_MOVE(move) — submit your move, e.g. MAKE_MOVE("Nf3").
+- SEND_MESSAGE(content) — send text to your opponent.
+- GET_MESSAGES() — read your opponent's messages.
+- DRAW_OFFER() — offer a draw; takes effect only if your opponent accepts.
+- DRAW_ACCEPT() / DRAW_REJECT() — respond to a pending draw offer (check GET_STATE for one).
+- RESIGN() — resign immediately. Irreversible.
+
+## Rules
+- The server is authoritative. The board is only ever what GET_STATE reports.
+- Only move when it is your turn. Moves out of turn are rejected.
+- Each tool call consumes time from your clock. The clock runs while the server processes your requests.
+
+## Budgets
+- API calls: limited per turn and per game. Exceeding either forfeits the game.
+- Output tokens: limited per move and per game. Exceeding either forfeits the game.
+- Be decisive: one GET_STATE, one MAKE_MOVE is a complete, efficient turn.
+
+## Communication
+- You may message your opponent at any time without losing the right to move.
+- Messages never affect the game state. Bluffing and psychological play are allowed.
+- Draw offers require your opponent's explicit acceptance.
+
+## Objective
+Win the game. If winning is impossible, steer toward a draw rather than losing.`
+
+const COLOR_NOTES: Record<'white' | 'black', string> = {
+  white: 'You move FIRST. Open the game.',
+  black: 'Your opponent moves FIRST. Respond to their opening.',
+}
 
 interface WsEvent {
   type: string
@@ -54,8 +89,8 @@ const WS_RECONNECT_MS = 3000
 
 export default function Arena() {
   const [matchId, setMatchId] = useState('')
-  const [playerId, setPlayerId] = useState('')
-  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white')
+  const [promptSide, setPromptSide] = useState<'white' | 'black'>('white')
+  const [matchInfo, setMatchInfo] = useState<Match | null>(null)
   const [timeControl] = useState('10+5')
   const [status, setStatus] = useState('No match selected')
   const [gameState, setGameState] = useState<GameState | null>(null)
@@ -155,13 +190,13 @@ export default function Arena() {
       }
 
       setStatus(match.status)
+      setMatchInfo(match)
 
       const activeGame = match.games.find(g => g.status === 'active') || match.games[0]
       if (activeGame) {
         activeMatchRef.current = matchId
         gameIdRef.current = activeGame.id
-        setPlayerId(match.playerAId || '')
-        setPlayerColor(activeGame.whitePlayerId === match.playerAId ? 'white' : 'black')
+        setPromptSide(activeGame.whitePlayerId === match.playerAId ? "white" : "black")
         await fetchGameState(matchId, activeGame.id)
         connectWebSocket(matchId)
       }
@@ -186,11 +221,35 @@ export default function Arena() {
     return () => clearTimeout(t)
   }, [copyState])
 
-  const getPrompt = () =>
-    PROMPT_TEMPLATE
-      .replace('{PLAYER_ID}', playerId)
-      .replace('{COLOR}', playerColor)
+  // Bearer tokens pasted by the operator (from match creation); the LLM
+  // receives its token inside the prompt text. Tokens belong to PLAYERS
+  // (A/B), not colors — colors swap every game.
+  const [tokenA, setTokenA] = useState("")
+  const [tokenB, setTokenB] = useState("")
+
+  // Base URL the LLM should hit (server port, mirroring the WS URL)
+  const apiUrl = `${window.location.protocol}//${window.location.hostname}:3001`
+
+  // Build the prompt for the selected side (ADR-006 canonical template).
+  // Uses the per-game display ID when the server provides one (Story 33).
+  const getPromptFor = (side: 'white' | 'black') => {
+    const game = matchInfo?.games.find(g => g.id === gameIdRef.current)
+    // Is the player with this color player A? (colors swap per game)
+    const sideIsPlayerA = game
+      ? (side === 'white') === (game.whitePlayerId === matchInfo?.playerAId)
+      : side === 'white'
+    const playerIdForSide = sideIsPlayerA ? matchInfo?.playerAId : matchInfo?.playerBId
+    const displayId = sideIsPlayerA ? game?.displayPlayerAId : game?.displayPlayerBId
+    return PROMPT_TEMPLATE
+      .replace('{PLAYER_ID}', displayId || playerIdForSide || `player-${side}`)
+      .replace(/\{COLOR_NOTE\}/g, COLOR_NOTES[side])
+      .replace(/\{COLOR\}/g, side)
       .replace('{TIME_CONTROL}', timeControl)
+      .replace(/\{API_URL\}/g, apiUrl)
+      .replace("{TOKEN}", (sideIsPlayerA ? tokenA : tokenB) || "<token-provided-separately>")
+  }
+
+  const getPrompt = () => getPromptFor(promptSide)
 
   const copyPrompt = async () => {
     try {
@@ -232,7 +291,7 @@ export default function Arena() {
         )}
 
         {/* Prompt for LLM */}
-        {gameState && playerId && (
+        {gameState && matchInfo?.playerAId && matchInfo?.playerBId && (
           <article className="card">
             <header>
               <strong>LLM Prompt</strong>
@@ -243,6 +302,46 @@ export default function Arena() {
                 Copy
               </button>
             </header>
+            <fieldset role="radiogroup" aria-label="Prompt side">
+              <label style={{ marginRight: '1rem' }}>
+                <input
+                  type="radio"
+                  name="prompt-side"
+                  checked={promptSide === 'white'}
+                  onChange={() => setPromptSide('white')}
+                />{' '}
+                White — {matchInfo.games.find(g => g.id === gameIdRef.current)?.displayPlayerAId || 'Player A'}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="prompt-side"
+                  checked={promptSide === 'black'}
+                  onChange={() => setPromptSide('black')}
+                />{' '}
+                Black — {matchInfo.games.find(g => g.id === gameIdRef.current)?.displayPlayerBId || 'Player B'}
+              </label>
+            </fieldset>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <label>
+                <small>Player A token (Bearer)</small>
+                <input
+                  type="text"
+                  placeholder="paste playerAToken"
+                  value={tokenA}
+                  onChange={(e) => setTokenA(e.target.value)}
+                />
+              </label>
+              <label>
+                <small>Player B token (Bearer)</small>
+                <input
+                  type="text"
+                  placeholder="paste playerBToken"
+                  value={tokenB}
+                  onChange={(e) => setTokenB(e.target.value)}
+                />
+              </label>
+            </div>
             {copyState !== 'idle' && (
               <p role="status">
                 <span className="badge" data-variant={copyState === 'copied' ? 'success' : 'danger'}>

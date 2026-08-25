@@ -5,6 +5,7 @@ import tournamentRoutes from './api/tournament'
 import ratingsRoutes from './api/ratings'
 import adminRoutes from './api/admin'
 import manifestRoutes from './api/manifest'
+import { llmsRoutes } from './api/llms'
 import { nodeAdapter, wsRoutes, broadcastMoveMade, broadcastMessageSent, broadcastDrawOffer, broadcastDrawResult, broadcastGameOver } from './ws'
 import { database } from './services/database'
 
@@ -62,6 +63,7 @@ const app = new Elysia({ adapter: nodeAdapter })
   .use(wsRoutes)
   .use(matchRoutes)
   .use(manifestRoutes)
+  .use(llmsRoutes)
   .use(tournamentRoutes)
   .use(ratingsRoutes)
   .use(adminRoutes)

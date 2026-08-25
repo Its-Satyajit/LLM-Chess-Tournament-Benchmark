@@ -16,6 +16,7 @@ export default function Admin() {
    [addingModel, setAddingModel] = useState(false),
    [modelError, setModelError] = useState(''),
    [matchResult, setMatchResult] = useState<{ ok: boolean; text: string } | null>(null),
+   [createdTokens, setCreatedTokens] = useState<{ white: string; black: string } | null>(null),
    [startingMatch, setStartingMatch] = useState(false),
    [selectedModels, setSelectedModels] = useState<number[]>([])
 
@@ -86,6 +87,7 @@ export default function Admin() {
         return
       }
       setMatchResult({ ok: true, text: `Match created! ID: ${result.matchId}` })
+      setCreatedTokens({ white: result.playerAToken, black: result.playerBToken })
       setSelectedModels([])
     } catch {
       setMatchResult({ ok: false, text: 'Error creating match — check the server and try again.' })
@@ -184,6 +186,17 @@ export default function Admin() {
                 {matchResult.text}
               </span>
             </p>
+          )}
+          {createdTokens && (
+            <div style={{ marginTop: "1rem" }}>
+              <p><small>Paste these into the Arena prompt card for each side:</small></p>
+              <label><small>Player A token (white in game 1)</small>
+                <input readOnly value={createdTokens.white} onFocus={(e) => e.currentTarget.select()} />
+              </label>
+              <label><small>Player B token (black in game 1)</small>
+                <input readOnly value={createdTokens.black} onFocus={(e) => e.currentTarget.select()} />
+              </label>
+            </div>
           )}
         </article>
       </div>
