@@ -92,8 +92,25 @@ const WS_RECONNECT_MS = 3000
 // (e.g. Vercel static + self-hosted arena server).
 const apiUrl = import.meta.env.VITE_API_URL ?? `${window.location.protocol}//${window.location.hostname}:3001`
 
+const LAST_MATCH_KEY = 'arena.lastMatchId'
+
+// Broadcast nameplate: player identity + clock, dot marks side to move
+function Plaque({ glyph, name, clock, toMove }: { glyph: string; name: string; clock?: number; toMove: boolean }) {
+  const low = toMove && clock !== undefined && clock <= 30
+  return (
+    <div className={`plaque ${toMove ? 'to-move' : ''}`}>
+      <span className="who"><span className="turn-dot" aria-hidden="true" /><span>{glyph} {name}</span></span>
+      {clock !== undefined && (
+        <span className={`clock ${low ? 'clock-low' : ''}`} aria-label={`${name} clock`}>
+          {clock}s
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function Arena() {
-  const [matchId, setMatchId] = useState('')
+  const [matchId, setMatchId] = useState(() => localStorage.getItem(LAST_MATCH_KEY) ?? '')
   const [promptSide, setPromptSide] = useState<'white' | 'black'>('white')
   const [matchInfo, setMatchInfo] = useState<Match | null>(null)
   const [timeControl] = useState('10+5')
@@ -185,6 +202,7 @@ export default function Arena() {
 
     setLoading(true)
     setError('')
+    localStorage.setItem(LAST_MATCH_KEY, matchId.trim())
 
     try {
       const match = await getMatch(matchId)
@@ -211,6 +229,17 @@ export default function Arena() {
 
     setLoading(false)
   }
+
+  // Auto-reconnect to the last match on load so an operator lands straight
+  // on the live board. Runs once on mount only.
+  const autoConnectRef = useRef(false)
+  const connectRef = useRef(connectToMatch)
+  connectRef.current = connectToMatch
+  useEffect(() => {
+    if (autoConnectRef.current) return
+    autoConnectRef.current = true
+    if (matchId.trim()) void connectRef.current()
+  }, [matchId])
 
   useEffect(() => () => {
     activeMatchRef.current = ''
@@ -262,13 +291,21 @@ export default function Arena() {
     }
   }
 
+  // Broadcast nameplates: resolve each color's display ID for this game
+  const activeGame = matchInfo?.games.find((g) => g.id === gameIdRef.current)
+  const whiteIsA = activeGame && matchInfo ? activeGame.whitePlayerId === matchInfo.playerAId : true
+  const whiteName = (whiteIsA ? activeGame?.displayPlayerAId : activeGame?.displayPlayerBId)
+    ?? (whiteIsA ? matchInfo?.playerAId : matchInfo?.playerBId) ?? 'White'
+  const blackName = (!whiteIsA ? activeGame?.displayPlayerAId : activeGame?.displayPlayerBId)
+    ?? (!whiteIsA ? matchInfo?.playerAId : matchInfo?.playerBId) ?? 'Black'
+
   const formatClock = (seconds: number | undefined, label: string) => {
     if (seconds === undefined) return null
     const low = seconds <= 30
     return (
       <p>
         <small>{label}:{' '}
-          <span className={low ? 'clock-low' : undefined}>
+          <span className={low ? 'clock clock-low' : 'clock'}>
             {seconds}s{low ? ' — LOW TIME' : ''}
           </span>
         </small>
@@ -279,9 +316,15 @@ export default function Arena() {
   return (
     <div className="grid">
       <div>
-        {/* Chess Board */}
+        {/* Chess Board with broadcast nameplates */}
         {gameState ? (
-          <ChessBoard fen={gameState.fen} />
+          <>
+            <Plaque glyph="♞" name={blackName} clock={gameState.clock.black} toMove={gameState.turn === 'black' && !gameState.isGameOver} />
+            <ChessBoard fen={gameState.fen} />
+            <div style={{ marginTop: '0.5rem' }}>
+              <Plaque glyph="♙" name={whiteName} clock={gameState.clock.white} toMove={gameState.turn === 'white' && !gameState.isGameOver} />
+            </div>
+          </>
         ) : (
           <div className="board-empty">
             <div>
@@ -328,19 +371,23 @@ export default function Arena() {
               <label>
                 <small>Player A token (Bearer)</small>
                 <input
-                  type="text"
+                  type="password"
                   placeholder="paste playerAToken"
                   value={tokenA}
                   onChange={(e) => setTokenA(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
                 />
               </label>
               <label>
                 <small>Player B token (Bearer)</small>
                 <input
-                  type="text"
+                  type="password"
                   placeholder="paste playerBToken"
                   value={tokenB}
                   onChange={(e) => setTokenB(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
                 />
               </label>
             </div>
@@ -366,12 +413,43 @@ export default function Arena() {
       </div>
 
       <aside>
+        {/* Connect — the entry action, so it leads the rail */}
+        <article className="card">
+          <header><strong>Connect to Match</strong></header>
+          <p><small>Paste the match ID from Admin — press Enter or click Connect.</small></p>
+          <form onSubmit={(e) => { e.preventDefault(); void connectToMatch() }}>
+            <label>
+              Match ID
+              <input
+                type="text"
+                placeholder="e.g., MATCH-1787585865651-702F59"
+                value={matchId}
+                onChange={(evt) => setMatchId(evt.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <button className="button" type="submit" disabled={loading} aria-busy={loading}>
+              {loading ? 'Connecting...' : 'Connect'}
+            </button>
+          </form>
+          {error && <p role="alert"><small>{error}</small></p>}
+          {matchId && !gameState && !loading && !error && (
+            <p><small>No board yet — click Connect to load this match.</small></p>
+          )}
+        </article>
+
         {/* Game Info */}
         <article className="card">
           <header>
             <strong>Game Info</strong>{' '}
-            <span className="badge" data-variant={wsConnected ? "success" : "danger"} role="status">
-              {wsConnected ? '● Live' : '○ Disconnected'}
+            <span
+              className="badge live-badge"
+              data-live={wsConnected}
+              data-variant={wsConnected ? "success" : "danger"}
+              role="status"
+            >
+              {wsConnected ? 'Live' : 'Reconnecting'}
             </span>
           </header>
           {!wsConnected && gameState && (
@@ -409,9 +487,9 @@ export default function Arena() {
           {moves.length === 0 ? (
             <p><small>No moves yet</small></p>
           ) : (
-            <div className="scroll-y" style={{ maxHeight: '16rem' }}>
+            <div className="moves-grid">
               {moves.map((move, i) => (
-                <div key={i}>
+                <div key={i} className="move-row">
                   <small>{Math.floor(i / 2) + 1}.</small> {move}
                 </div>
               ))}
@@ -436,23 +514,6 @@ export default function Arena() {
           </article>
         )}
 
-        {/* Connect */}
-        <article className="card">
-          <header><strong>Connect to Match</strong></header>
-          <label>
-            Match ID
-            <input
-              type="text"
-              placeholder="e.g., MATCH-1787585865651-702F59"
-              value={matchId}
-              onChange={(evt) => setMatchId(evt.target.value)}
-            />
-          </label>
-          <button className="button" onClick={connectToMatch} disabled={loading} aria-busy={loading}>
-            {loading ? 'Connecting...' : 'Connect'}
-          </button>
-          {error && <p role="alert"><small>{error}</small></p>}
-        </article>
       </aside>
     </div>
   )

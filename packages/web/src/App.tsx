@@ -7,7 +7,7 @@ import Admin from './pages/Admin'
 function App() {
   return (
     <BrowserRouter>
-      <nav className="arena-nav">
+      <nav className="arena-nav" aria-label="Main">
         <div className="container">
           <ul>
             <li>

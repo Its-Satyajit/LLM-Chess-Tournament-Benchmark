@@ -72,6 +72,20 @@ export default function Replay() {
   }, [moves])
 
   const fen = fenHistory[currentMove] ?? fenHistory[fenHistory.length - 1] ?? ""
+
+  // ← / → step through moves; Home/End jump to start/latest.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') setCurrentMove((m) => Math.max(0, m - 1))
+      else if (e.key === 'ArrowRight') setCurrentMove((m) => Math.min(moves.length, m + 1))
+      else if (e.key === 'Home') setCurrentMove(0)
+      else if (e.key === 'End') setCurrentMove(moves.length)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moves.length])
   const game = matchInfo?.games?.find((g) => g.id === gameId)
 
   if (loading) {
@@ -136,6 +150,7 @@ export default function Replay() {
               </button>
               <button className="button" onClick={() => setCurrentMove(moves.length)} data-variant="outline">End ⏭</button>
             </div>
+            <p style={{ textAlign: 'center' }}><small>Tip: use the ← → keys to step through the game.</small></p>
           </article>
         </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createMatch } from '../lib/api'
 
 interface Model {
@@ -9,16 +10,32 @@ interface Model {
 
 type LoadState = 'loading' | 'loaded' | 'error'
 
+// One token handoff row: read-only value + copy button
+function TokenRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <label><small>{label}</small>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
+        <button className="button" type="button" data-variant="secondary" onClick={onCopy}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </label>
+  )
+}
+
 export default function Admin() {
   const [models, setModels] = useState<Model[]>([]),
    [modelsState, setModelsState] = useState<LoadState>('loading'),
    [newModel, setNewModel] = useState({ name: '', provider: '' }),
    [addingModel, setAddingModel] = useState(false),
    [modelError, setModelError] = useState(''),
-   [matchResult, setMatchResult] = useState<{ ok: boolean; text: string } | null>(null),
+   [matchResult, setMatchResult] = useState<{ ok: boolean; text: string; matchId?: string } | null>(null),
    [createdTokens, setCreatedTokens] = useState<{ white: string; black: string } | null>(null),
    [startingMatch, setStartingMatch] = useState(false),
-   [selectedModels, setSelectedModels] = useState<number[]>([])
+   [selectedModels, setSelectedModels] = useState<number[]>([]),
+   [copiedToken, setCopiedToken] = useState<'A' | 'B' | null>(null)
+  const navigate = useNavigate()
 
   const loadModels = () => {
     setModelsState('loading')
@@ -86,7 +103,7 @@ export default function Admin() {
         setMatchResult({ ok: false, text: `Error creating match: ${message}` })
         return
       }
-      setMatchResult({ ok: true, text: `Match created! ID: ${result.matchId}` })
+      setMatchResult({ ok: true, text: `Match created! ID: ${result.matchId}`, matchId: result.matchId })
       setCreatedTokens({ white: result.playerAToken, black: result.playerBToken })
       setSelectedModels([])
     } catch {
@@ -96,12 +113,32 @@ export default function Admin() {
     }
   }
 
+  const copyToken = async (which: 'A' | 'B') => {
+    if (!createdTokens) return
+    try {
+      await navigator.clipboard.writeText(which === 'A' ? createdTokens.white : createdTokens.black)
+      setCopiedToken(which)
+      setTimeout(() => setCopiedToken(null), 2000)
+    } catch {
+      // Input is readOnly + select-on-focus, so manual copy still works
+    }
+  }
+
+  const openInArena = () => {
+    if (!matchResult?.matchId) return
+    localStorage.setItem('arena.lastMatchId', matchResult.matchId)
+    navigate('/')
+  }
+
+
+
   return (
     <>
       <h2>Admin Panel</h2>
       <div className="grid">
         <article className="card">
           <h3>Models</h3>
+          <span className="step-label">Step 1 · Register the models</span>
           <form
             onSubmit={(e) => { e.preventDefault(); void addModel() }}
             style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}
@@ -159,6 +196,7 @@ export default function Admin() {
 
         <article className="card">
           <h3>Create Match</h3>
+          <span className="step-label">Step 2 · Pick two players</span>
           <p>
             <small>Select 2 models to compete in a 4-game match.</small>
           </p>
@@ -189,13 +227,11 @@ export default function Admin() {
           )}
           {createdTokens && (
             <div style={{ marginTop: "1rem" }}>
+              <span className="step-label">Step 3 · Hand tokens to each player</span>
               <p><small>Paste these into the Arena prompt card for each side:</small></p>
-              <label><small>Player A token (white in game 1)</small>
-                <input readOnly value={createdTokens.white} onFocus={(e) => e.currentTarget.select()} />
-              </label>
-              <label><small>Player B token (black in game 1)</small>
-                <input readOnly value={createdTokens.black} onFocus={(e) => e.currentTarget.select()} />
-              </label>
+              <TokenRow label="Player A (white in game 1)" value={createdTokens.white} copied={copiedToken === 'A'} onCopy={() => void copyToken('A')} />
+              <TokenRow label="Player B (black in game 1)" value={createdTokens.black} copied={copiedToken === 'B'} onCopy={() => void copyToken('B')} />
+              <button className="button" onClick={openInArena}>Open in Arena →</button>
             </div>
           )}
         </article>
