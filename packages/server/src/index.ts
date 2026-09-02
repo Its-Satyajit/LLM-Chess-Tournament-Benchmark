@@ -8,7 +8,7 @@ import ratingsRoutes from './api/ratings'
 import adminRoutes from './api/admin'
 import manifestRoutes from './api/manifest'
 import { llmsRoutes } from './api/llms'
-import { nodeAdapter, wsRoutes, broadcastMoveMade, broadcastMessageSent, broadcastDrawOffer, broadcastDrawResult, broadcastGameOver } from './ws'
+import { nodeAdapter, wsRoutes, broadcastMoveMade, broadcastMessageSent, broadcastDrawOffer, broadcastDrawResult, broadcastGameOver, broadcastMatchOver, broadcastGameStarted } from './ws'
 import { database } from './services/database'
 
 // Initialize database and load persisted state.
@@ -54,6 +54,18 @@ engine.onEvent((event) => {
     case 'game_over':
       // SAFETY: type assertion is validated by upstream schema/parsing
       broadcastGameOver(event.matchId, event.gameId, (event.data.result as string) || '', (event.data.reason as string) || '')
+      break
+    case 'game_started':
+      broadcastGameStarted(
+        event.matchId,
+        event.gameId,
+        (event.data.gameNumber as number) || 1,
+        (event.data.whitePlayerId as string) || '',
+        (event.data.blackPlayerId as string) || '',
+      )
+      break
+    case 'match_completed':
+      broadcastMatchOver(event.matchId, (event.data.result as string) || 'Match Finished')
       break
   }
 })

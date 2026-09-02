@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useReducer, useEffect, useMemo } from "react"
 import { Link, useParams } from "react-router-dom"
 import { Chess } from "chess.js"
 import { getGameState, getMatch, type GameState, type Match } from "../lib/api"
@@ -6,48 +6,103 @@ import ChessBoard from "../components/ChessBoard"
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
+interface ReplayState {
+  gameState: GameState | null
+  moves: string[]
+  currentMove: number
+  loading: boolean
+  error: string
+  matchInfo: Match | null
+}
+
+type ReplayAction =
+  | { type: 'LOAD_SUCCESS'; match: Match; state: GameState }
+  | { type: 'LOAD_ERROR'; error: string }
+  | { type: 'SET_CURRENT_MOVE'; moveIndex: number | ((prev: number) => number) }
+
+function replayReducer(state: ReplayState, action: ReplayAction): ReplayState {
+  switch (action.type) {
+    case 'LOAD_SUCCESS':
+      return {
+        ...state,
+        matchInfo: action.match,
+        gameState: action.state,
+        moves: action.state.history,
+        currentMove: action.state.history.length,
+        loading: false,
+        error: '',
+      }
+    case 'LOAD_ERROR':
+      return {
+        ...state,
+        loading: false,
+        error: action.error,
+      }
+    case 'SET_CURRENT_MOVE':
+      return {
+        ...state,
+        currentMove:
+          typeof action.moveIndex === 'function'
+            ? action.moveIndex(state.currentMove)
+            : action.moveIndex,
+      }
+    default:
+      return state
+  }
+}
+
 export default function Replay() {
   const { gameId, matchId } = useParams()
-  const [gameState, setGameState] = useState<GameState | null>(null)
-  const [moves, setMoves] = useState<string[]>([])
-  const [currentMove, setCurrentMove] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-  const [matchInfo, setMatchInfo] = useState<Match | null>(null)
+  const [state, dispatch] = useReducer(replayReducer, {
+    gameState: null,
+    moves: [],
+    currentMove: 0,
+    loading: true,
+    error: '',
+    matchInfo: null,
+  })
+  const { gameState, moves, currentMove, loading, error, matchInfo } = state
+  const setCurrentMove = (idxOrFn: number | ((prev: number) => number)) =>
+    dispatch({ type: 'SET_CURRENT_MOVE', moveIndex: idxOrFn })
+
+  const moveList = useMemo(
+    () =>
+      moves.map((move, i) => ({
+        id: `${gameId || 'g'}-ply-${i + 1}-${move}`,
+        move,
+        moveNumber: Math.floor(i / 2) + 1,
+        ply: i + 1,
+      })),
+    [moves, gameId]
+  )
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       if (!matchId || !gameId) {
         if (!cancelled) {
-          setError("Missing matchId or gameId in URL — expected /replay/:matchId/:gameId")
-          setLoading(false)
+          dispatch({ type: 'LOAD_ERROR', error: "Missing matchId or gameId in URL — expected /replay/:matchId/:gameId" })
         }
         return
       }
 
       try {
-        const [match, state] = await Promise.all([
+        const [match, gameStateData] = await Promise.all([
           getMatch(matchId),
           getGameState(matchId, gameId),
         ])
 
         if (!cancelled) {
-          setMatchInfo(match)
-          setGameState(state)
-          setMoves(state.history)
-          setCurrentMove(state.history.length)
-          setLoading(false)
+          dispatch({ type: 'LOAD_SUCCESS', match, state: gameStateData })
         }
       } catch {
         if (!cancelled) {
-          setError("Failed to load game data. Check the match ID and try again.")
-          setLoading(false)
+          dispatch({ type: 'LOAD_ERROR', error: "Failed to load game data. Check the match ID and try again." })
         }
       }
     }
 
-    load()
+    void load()
     return () => { cancelled = true }
   }, [matchId, gameId])
 
@@ -72,6 +127,20 @@ export default function Replay() {
   }, [moves])
 
   const fen = fenHistory[currentMove] ?? fenHistory[fenHistory.length - 1] ?? ""
+
+  // ← / → step through moves; Home/End jump to start/latest.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') setCurrentMove((m) => Math.max(0, m - 1))
+      else if (e.key === 'ArrowRight') setCurrentMove((m) => Math.min(moves.length, m + 1))
+      else if (e.key === 'Home') setCurrentMove(0)
+      else if (e.key === 'End') setCurrentMove(moves.length)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moves.length])
   const game = matchInfo?.games?.find((g) => g.id === gameId)
 
   if (loading) {
@@ -136,6 +205,7 @@ export default function Replay() {
               </button>
               <button className="button" onClick={() => setCurrentMove(moves.length)} data-variant="outline">End ⏭</button>
             </div>
+            <p style={{ textAlign: 'center' }}><small>Tip: use the ← → keys to step through the game.</small></p>
           </article>
         </div>
 
@@ -167,17 +237,17 @@ export default function Replay() {
               <p><small>No moves yet</small></p>
             ) : (
               <nav className="moves-grid" aria-label="Jump to move">
-                {moves.map((move, idx) => (
+                {moveList.map((item) => (
                   <a
-                    key={`${gameId}-move-${idx}`}
-                    href={`#${idx + 1}`}
+                    key={item.id}
+                    href={`#${item.ply}`}
                     role="button"
-                    className={`move-btn ${idx === currentMove - 1 ? 'current' : idx < currentMove ? '' : 'future'}`}
-                    onClick={(e) => { e.preventDefault(); setCurrentMove(idx + 1) }}
-                    aria-label={`Jump to move ${idx + 1}: ${move}`}
-                    aria-current={idx === currentMove - 1 ? "true" : undefined}
+                    className={`move-btn ${item.ply === currentMove ? 'current' : item.ply <= currentMove ? '' : 'future'}`}
+                    onClick={(e) => { e.preventDefault(); setCurrentMove(item.ply) }}
+                    aria-label={`Jump to move ${item.ply}: ${item.move}`}
+                    aria-current={item.ply === currentMove ? "true" : undefined}
                   >
-                    <small>{Math.floor(idx / 2) + 1}.</small> {move}
+                    <small>{item.moveNumber}.</small> {item.move}
                   </a>
                 ))}
               </nav>

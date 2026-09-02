@@ -168,3 +168,14 @@ export function broadcastMatchOver(matchId: string, result: string) {
     result,
   })
 }
+
+export function broadcastGameStarted(matchId: string, gameId: string, gameNumber: number, whitePlayerId: string, blackPlayerId: string) {
+  broadcast(matchId, {
+    type: 'game_started',
+    matchId,
+    gameId,
+    gameNumber,
+    whitePlayerId,
+    blackPlayerId,
+  })
+}

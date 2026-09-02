@@ -5,10 +5,10 @@ import {
   rateLimiter,
   turnRateLimiter,
 } from '../auth'
-const engine = database.getEngine()
-
 import { database } from '../services/database'
 import type { ModelConfig } from '@llm-chess-arena/shared'
+
+const engine = database.getEngine()
 
 
 
@@ -223,7 +223,7 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
     return result
   }, {
     body: t.Object({
-      move: t.String({ minLength: 4, maxLength: 10 }),
+      move: t.String({ minLength: 2, maxLength: 10 }),
       tokensUsed: t.Optional(t.Number({ minimum: 0 })),
     }),
   })

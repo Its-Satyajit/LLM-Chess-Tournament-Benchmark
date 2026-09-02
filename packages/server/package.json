@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "nub watch src/index.ts",
-    "build": "tsc && node dist/index.js",
-    "start": "node dist/index.js",
+    "build": "tsc",
+    "start": "npx -y nub@0.7.5 src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -14,6 +14,7 @@
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/node": "^1.4.5",
+    "@libsql/client": "^0.17.4",
     "@llm-chess-arena/shared": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",

@@ -21,8 +21,9 @@ export default function Dashboard() {
   useEffect(load, [])
 
   return (
-    <article className="card">
+    <article className="card leaderboard">
       <h2>Leaderboard</h2>
+      <p><small>Standings across all finished matches — Elo rating with win/draw/loss record.</small></p>
       <table data-striped>
         <thead>
           <tr>
@@ -56,11 +57,11 @@ export default function Dashboard() {
             </tr>
           ) : (
             ratings.map((r, i) => (
-              <tr key={i}>
-                <td>{i + 1}</td>
+              <tr key={`${r.provider}-${r.model}`}>
+                <td className="rank">{i + 1}</td>
                 <td title={r.model}>{r.model}</td>
                 <td><small>{r.provider}</small></td>
-                <td style={{ textAlign: 'right' }}>{Math.round(r.rating)}</td>
+                <td className="rating" style={{ textAlign: 'right' }}>{Math.round(r.rating)}</td>
                 <td style={{ textAlign: 'right' }} aria-label={`${r.wins} wins`}>{r.wins}</td>
                 <td style={{ textAlign: 'right' }} aria-label={`${r.draws} draws`}>{r.draws}</td>
                 <td style={{ textAlign: 'right' }} aria-label={`${r.losses} losses`}>{r.losses}</td>

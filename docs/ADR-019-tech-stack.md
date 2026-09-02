@@ -26,14 +26,14 @@ The project needs a complete technology stack for the backend, frontend, databas
 │                    BENCHMARK SERVER                          │
 │                    (Passive API)                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Hono (Node.js)  │  chess.js  │  SQLite + Drizzle          │
+│  ElysiaJS (Node.js) │  chess.js  │  SQLite + Drizzle        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ WebSocket (real-time updates)
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    WEB FRONTEND                             │
-│               React + Vite + shadcn/ui                      │
+│               React + Vite + Custom CSS                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,7 +52,7 @@ The project needs a complete technology stack for the backend, frontend, databas
 
 | Component   | Choice            | Rationale                                          |
 | ----------- | ----------------- | -------------------------------------------------- |
-| Framework   | **Hono**          | Lightweight, fast, Node.js-native, TypeScript-first|
+| Framework   | **ElysiaJS**      | High-performance type-safe router via `@elysiajs/node` |
 | Chess Logic | **chess.js**      | Battle-tested, Chess960 support, TypeScript types  |
 | Runtime     | **nub**           | TypeScript files run directly on Node.js           |
 
@@ -62,8 +62,7 @@ The project needs a complete technology stack for the backend, frontend, databas
 | ---------------- | ---------------- | -------------------------------------------------- |
 | Framework        | **React 18+**    | Largest ecosystem, most chess components available |
 | Build Tool       | **Vite**         | Fastest builds, great DX, native ESM               |
-| UI Library       | **shadcn/ui**    | Beautiful, accessible, copy-paste components       |
-| Styling          | **Tailwind CSS** | Utility-first, works perfectly with shadcn/ui      |
+| Styling          | **Custom CSS**   | Lightweight accessible styling (`packages/web/src/index.css`) |
 | State Management | **Zustand**      | Simple, lightweight, great for real-time data      |
 
 ### Database

@@ -7,8 +7,10 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts",],
     // Keep tests off the real database — clearAll() in tests would wipe it
+    fileParallelism: false,
     env: {
       DATABASE_URL: "./data/test-db.sqlite",
+      DATABASE_AUTH_TOKEN: "",
     },
     coverage: {
       provider: "v8",

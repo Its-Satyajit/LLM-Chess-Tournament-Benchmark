@@ -1,10 +1,9 @@
 import { Elysia, t } from 'elysia'
 import { TournamentManager } from '../tournament'
 import { engine } from './match'
-import { DatabaseService } from '../services/database'
+import { database } from '../services/database'
 
-const database = new DatabaseService(),
- tournamentManager = new TournamentManager(engine),
+const tournamentManager = new TournamentManager(engine),
 
  tournamentRoutes = new Elysia({ prefix: '/api/tournament' })
   .post('/create', ({ body }) => {

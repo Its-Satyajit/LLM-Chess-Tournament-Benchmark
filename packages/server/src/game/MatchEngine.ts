@@ -535,12 +535,20 @@ export class MatchEngine {
     if (match.currentGameIndex >= 4) {
       match.status = 'completed'
       match.completedAt = new Date()
-      this.logEvent(match.id, game.id, 'match_completed', 'system', {})
+      this.logEvent(match.id, game.id, 'match_completed', 'system', {
+        result: result ? JSON.stringify(result) : undefined,
+      })
     } else {
       const nextGame = match.games[match.currentGameIndex]
       nextGame.status = 'active'
       // Start 30-second reset period
       nextGame.clock.startResetPeriod()
+      this.logEvent(match.id, nextGame.id, 'game_started', 'system', {
+        gameId: nextGame.id,
+        gameNumber: nextGame.gameNumber,
+        whitePlayerId: nextGame.whitePlayerId,
+        blackPlayerId: nextGame.blackPlayerId,
+      })
     }
   }
 

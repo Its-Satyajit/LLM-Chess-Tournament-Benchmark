@@ -3,8 +3,10 @@ import { Elysia } from "elysia"
 import { cors } from "@elysiajs/cors"
 import matchRoutes from "./match"
 import ratingsRoutes from "./ratings"
+import tournamentRoutes from "./tournament"
 import manifestRoutes from "./manifest"
 import { generatePlayerToken } from "../auth"
+import { database } from "../services/database"
 
 // Create test app — no server needed, use app.handle()
 const app = new Elysia()
@@ -13,6 +15,7 @@ const app = new Elysia()
   .use(matchRoutes)
   .use(manifestRoutes)
   .use(ratingsRoutes)
+  .use(tournamentRoutes)
 
 function authHeader(matchId: string, playerId: string) {
   return { Authorization: `Bearer ${generatePlayerToken(playerId, matchId)}` }
@@ -112,11 +115,11 @@ describe("API Integration", () => {
 
     const result = await POST(
       `/api/match/${matchId}/move/${gameId}`,
-      { move: "e2e4" },
+      { move: "e4" },
       authHeader(matchId, whiteId),
     )
-    // Should either accept or reject with a valid error
-    expect(result.accepted === true || result.error !== undefined).toBe(true)
+    // Should accept SAN move e4
+    expect(result.accepted).toBe(true)
   })
 
   it("POST /api/match/:matchId/message/:gameId — sends message", async () => {
@@ -239,5 +242,21 @@ describe("Auth enforcement (Stories 44, 46, 47)", () => {
     const isWhite = data.turn === "white"
     expect(isWhite ? data.clock.white : data.clock.black).toBeDefined()
     expect(isWhite ? data.clock.black : data.clock.white).toBeUndefined()
+  })
+
+  it("GET /api/ratings — reflects ratings saved via shared database instance", async () => {
+    await database.saveRating("test-singleton-model", "test-provider", {
+      gamesPlayed: 1,
+      rating: 1650,
+      rd: 50,
+      volatility: 0.06,
+    })
+    const data = await GET<RatingsResponse>("/api/ratings")
+    // SAFETY: ratings array elements returned from /api/ratings contain model and rating
+    const found = (data.ratings as Array<{ model: string; rating: number }> | undefined)?.find(
+      (r) => r.model === "test-singleton-model",
+    )
+    expect(found).toBeDefined()
+    expect(found?.rating).toBe(1650)
   })
 })

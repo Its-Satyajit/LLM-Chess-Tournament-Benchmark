@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createMatch } from '../lib/api'
 
 interface Model {
@@ -9,32 +9,51 @@ interface Model {
 
 type LoadState = 'loading' | 'loaded' | 'error'
 
+// One token handoff row: read-only value + copy button
+function TokenRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div>
+      <span className="step-label"><small>{label}</small></span>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} aria-label={label} />
+        <button className="button" type="button" data-variant="secondary" onClick={onCopy}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Admin() {
   const [models, setModels] = useState<Model[]>([]),
    [modelsState, setModelsState] = useState<LoadState>('loading'),
    [newModel, setNewModel] = useState({ name: '', provider: '' }),
    [addingModel, setAddingModel] = useState(false),
    [modelError, setModelError] = useState(''),
-   [matchResult, setMatchResult] = useState<{ ok: boolean; text: string } | null>(null),
+   [matchResult, setMatchResult] = useState<{ ok: boolean; text: string; matchId?: string } | null>(null),
    [createdTokens, setCreatedTokens] = useState<{ white: string; black: string } | null>(null),
    [startingMatch, setStartingMatch] = useState(false),
-   [selectedModels, setSelectedModels] = useState<number[]>([])
+   [selectedModels, setSelectedModels] = useState<number[]>([]),
+   [copiedToken, setCopiedToken] = useState<'A' | 'B' | null>(null)
 
-  const loadModels = () => {
+  const selectedModelsSet = useMemo(() => new Set(selectedModels), [selectedModels])
+
+  const loadModels = useCallback(async () => {
     setModelsState('loading')
-    fetch('/api/admin/models')
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: { models?: Model[] }) => {
-        setModels(data.models || [])
-        setModelsState('loaded')
-      })
-      .catch(() => setModelsState('error'))
-  }
+    try {
+      const res = await fetch('/api/admin/models')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = (await res.json()) as { models?: Model[] }
+      setModels(data.models || [])
+      setModelsState('loaded')
+    } catch {
+      setModelsState('error')
+    }
+  }, [])
 
-  useEffect(loadModels, [])
+  useEffect(() => {
+    void loadModels()
+  }, [loadModels])
 
   const addModel = async () => {
     if (!newModel.name || !newModel.provider || addingModel) return
@@ -86,7 +105,7 @@ export default function Admin() {
         setMatchResult({ ok: false, text: `Error creating match: ${message}` })
         return
       }
-      setMatchResult({ ok: true, text: `Match created! ID: ${result.matchId}` })
+      setMatchResult({ ok: true, text: `Match created! ID: ${result.matchId}`, matchId: result.matchId })
       setCreatedTokens({ white: result.playerAToken, black: result.playerBToken })
       setSelectedModels([])
     } catch {
@@ -96,12 +115,32 @@ export default function Admin() {
     }
   }
 
+  const copyToken = async (which: 'A' | 'B') => {
+    if (!createdTokens) return
+    try {
+      await navigator.clipboard.writeText(which === 'A' ? createdTokens.white : createdTokens.black)
+      setCopiedToken(which)
+      setTimeout(() => setCopiedToken(null), 2000)
+    } catch {
+      // Input is readOnly + select-on-focus, so manual copy still works
+    }
+  }
+
+  const openInArena = () => {
+    if (!matchResult?.matchId) return
+    localStorage.setItem('arena.lastMatchId', matchResult.matchId)
+    document.getElementById('arena')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+
+
   return (
     <>
       <h2>Admin Panel</h2>
       <div className="grid">
         <article className="card">
           <h3>Models</h3>
+          <span className="step-label">Step 1 · Register the models</span>
           <form
             onSubmit={(e) => { e.preventDefault(); void addModel() }}
             style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}
@@ -140,25 +179,29 @@ export default function Admin() {
             <p><small>No models yet — add one above to get started.</small></p>
           )}
           <div style={{ display: "grid", gap: "0.5rem" }}>
-            {models.map((m, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => toggleModel(i)}
-                aria-pressed={selectedModels.includes(i)}
-                aria-label={`Select ${m.name} (${m.provider})`}
-                className="button model-row"
-                title={selectedModels.length >= 2 && !selectedModels.includes(i) ? 'Deselect a model first — max 2' : undefined}
-              >
-                <span style={{ float: "left" }}>{m.name}</span>
-                <span style={{ float: "right" }}>{m.provider}</span>
-              </button>
-            ))}
+            {models.map((m, i) => {
+              const isSelected = selectedModelsSet.has(i)
+              return (
+                <button
+                  key={`${m.provider}-${m.name}`}
+                  type="button"
+                  onClick={() => toggleModel(i)}
+                  aria-pressed={isSelected}
+                  aria-label={`Select ${m.name} (${m.provider})`}
+                  className="button model-row"
+                  title={selectedModels.length >= 2 && !isSelected ? 'Deselect a model first — max 2' : undefined}
+                >
+                  <span style={{ float: "left" }}>{m.name}</span>
+                  <span style={{ float: "right" }}>{m.provider}</span>
+                </button>
+              )
+            })}
           </div>
         </article>
 
         <article className="card">
           <h3>Create Match</h3>
+          <span className="step-label">Step 2 · Pick two players</span>
           <p>
             <small>Select 2 models to compete in a 4-game match.</small>
           </p>
@@ -189,13 +232,11 @@ export default function Admin() {
           )}
           {createdTokens && (
             <div style={{ marginTop: "1rem" }}>
+              <span className="step-label">Step 3 · Hand tokens to each player</span>
               <p><small>Paste these into the Arena prompt card for each side:</small></p>
-              <label><small>Player A token (white in game 1)</small>
-                <input readOnly value={createdTokens.white} onFocus={(e) => e.currentTarget.select()} />
-              </label>
-              <label><small>Player B token (black in game 1)</small>
-                <input readOnly value={createdTokens.black} onFocus={(e) => e.currentTarget.select()} />
-              </label>
+              <TokenRow label="Player A (white in game 1)" value={createdTokens.white} copied={copiedToken === 'A'} onCopy={() => void copyToken('A')} />
+              <TokenRow label="Player B (black in game 1)" value={createdTokens.black} copied={copiedToken === 'B'} onCopy={() => void copyToken('B')} />
+              <button className="button" onClick={openInArena}>Open in Arena →</button>
             </div>
           )}
         </article>

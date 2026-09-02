@@ -1,9 +1,7 @@
 import { Elysia } from 'elysia'
-import { DatabaseService } from '../services/database'
+import { database } from '../services/database'
 
-const database = new DatabaseService(),
-
- ratingsRoutes = new Elysia({ prefix: '/api/ratings' })
+const ratingsRoutes = new Elysia({ prefix: '/api/ratings' })
   .get('/', async () => {
     // Read from SQLite database per spec Story 56
     const dbRatings = await database.getAllRatings()
