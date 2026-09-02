@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createMatch } from '../lib/api'
 
 interface Model {
@@ -13,14 +12,15 @@ type LoadState = 'loading' | 'loaded' | 'error'
 // One token handoff row: read-only value + copy button
 function TokenRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
   return (
-    <label><small>{label}</small>
+    <div>
+      <span className="step-label"><small>{label}</small></span>
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
+        <input readOnly value={value} onFocus={(e) => e.currentTarget.select()} aria-label={label} />
         <button className="button" type="button" data-variant="secondary" onClick={onCopy}>
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-    </label>
+    </div>
   )
 }
 
@@ -35,23 +35,25 @@ export default function Admin() {
    [startingMatch, setStartingMatch] = useState(false),
    [selectedModels, setSelectedModels] = useState<number[]>([]),
    [copiedToken, setCopiedToken] = useState<'A' | 'B' | null>(null)
-  const navigate = useNavigate()
 
-  const loadModels = () => {
+  const selectedModelsSet = useMemo(() => new Set(selectedModels), [selectedModels])
+
+  const loadModels = useCallback(async () => {
     setModelsState('loading')
-    fetch('/api/admin/models')
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: { models?: Model[] }) => {
-        setModels(data.models || [])
-        setModelsState('loaded')
-      })
-      .catch(() => setModelsState('error'))
-  }
+    try {
+      const res = await fetch('/api/admin/models')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = (await res.json()) as { models?: Model[] }
+      setModels(data.models || [])
+      setModelsState('loaded')
+    } catch {
+      setModelsState('error')
+    }
+  }, [])
 
-  useEffect(loadModels, [])
+  useEffect(() => {
+    void loadModels()
+  }, [loadModels])
 
   const addModel = async () => {
     if (!newModel.name || !newModel.provider || addingModel) return
@@ -127,7 +129,7 @@ export default function Admin() {
   const openInArena = () => {
     if (!matchResult?.matchId) return
     localStorage.setItem('arena.lastMatchId', matchResult.matchId)
-    navigate('/')
+    document.getElementById('arena')?.scrollIntoView({ behavior: 'smooth' })
   }
 
 
@@ -177,20 +179,23 @@ export default function Admin() {
             <p><small>No models yet — add one above to get started.</small></p>
           )}
           <div style={{ display: "grid", gap: "0.5rem" }}>
-            {models.map((m, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => toggleModel(i)}
-                aria-pressed={selectedModels.includes(i)}
-                aria-label={`Select ${m.name} (${m.provider})`}
-                className="button model-row"
-                title={selectedModels.length >= 2 && !selectedModels.includes(i) ? 'Deselect a model first — max 2' : undefined}
-              >
-                <span style={{ float: "left" }}>{m.name}</span>
-                <span style={{ float: "right" }}>{m.provider}</span>
-              </button>
-            ))}
+            {models.map((m, i) => {
+              const isSelected = selectedModelsSet.has(i)
+              return (
+                <button
+                  key={`${m.provider}-${m.name}`}
+                  type="button"
+                  onClick={() => toggleModel(i)}
+                  aria-pressed={isSelected}
+                  aria-label={`Select ${m.name} (${m.provider})`}
+                  className="button model-row"
+                  title={selectedModels.length >= 2 && !isSelected ? 'Deselect a model first — max 2' : undefined}
+                >
+                  <span style={{ float: "left" }}>{m.name}</span>
+                  <span style={{ float: "right" }}>{m.provider}</span>
+                </button>
+              )
+            })}
           </div>
         </article>
 

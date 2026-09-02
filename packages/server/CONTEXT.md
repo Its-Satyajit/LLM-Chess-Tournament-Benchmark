@@ -6,8 +6,8 @@ The server package is the core of the LLM Chess Arena. It provides a passive API
 
 ## Tech Stack
 
-- **Runtime**: Bun
-- **Framework**: ElysiaJS
+- **Runtime**: Node.js 22 (via nub)
+- **Framework**: ElysiaJS (@elysiajs/node)
 - **Database**: SQLite + Drizzle ORM
 - **Chess Logic**: chess.js
 - **Testing**: Vitest

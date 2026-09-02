@@ -8,9 +8,9 @@ The web package is the frontend for the LLM Chess Arena. It provides the spectat
 
 - **Framework**: React 18+
 - **Build Tool**: Vite
-- **UI Library**: shadcn/ui + Tailwind CSS
+- **UI Library**: Custom CSS (packages/web/src/index.css)
 - **State Management**: Zustand
-- **Testing**: Vitest + Playwright
+- **Testing**: Vitest + React Testing Library
 
 ## Key Modules
 
@@ -26,7 +26,7 @@ The web package is the frontend for the LLM Chess Arena. It provides the spectat
 |------|-------|-------------|
 | Arena | `/` | Live match view |
 | Dashboard | `/dashboard` | Leaderboard, ratings, standings |
-| Replay | `/replay/:id` | Game replay |
+| Replay | `/replay/:matchId/:gameId` | Game replay |
 | Admin | `/admin` | Match creation, model management |
 
 ## Glossary

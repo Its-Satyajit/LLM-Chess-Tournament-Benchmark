@@ -150,6 +150,9 @@ export interface EventData {
   fen?: string
   from?: string
   gameId?: string
+  gameNumber?: number
+  whitePlayerId?: string
+  blackPlayerId?: string
   insufficientMaterial?: boolean
   loser?: string
   matchId?: string

@@ -16,4 +16,10 @@ describe('App', () => {
     expect(screen.getByText('Dashboard')).toBeDefined()
     expect(screen.getByText('Admin')).toBeDefined()
   })
+
+  it('renders replay view when navigating to /replay/:matchId/:gameId', () => {
+    window.history.pushState({}, 'Replay Test', '/replay/match-123/game-456')
+    render(<App />)
+    expect(screen.getByText(/Loading game\.\.\./i)).toBeDefined()
+  })
 })

@@ -10,10 +10,17 @@ export class DatabaseService {
   private engine: MatchEngine
   // Per-match watermark: how many engine events have been persisted
   private savedEventCounts = new Map<string, number>()
+  private initPromise: Promise<void>
 
   constructor() {
-    initializeDatabase()
+    this.initPromise = initializeDatabase().catch((err) => {
+      console.error('⚠️  Failed to initialize database:', err)
+    })
     this.engine = new MatchEngine()
+  }
+
+  async ensureInitialized(): Promise<void> {
+    await this.initPromise
   }
 
   getEngine(): MatchEngine {
@@ -22,6 +29,7 @@ export class DatabaseService {
 
   // Persist a match to database
   async saveMatch(match: Match): Promise<void> {
+    await this.ensureInitialized()
     const existing = await db.select().from(matches).where(eq(matches.id, match.id)).get()
     const values = {
       id: match.id,
@@ -52,6 +60,7 @@ export class DatabaseService {
 
   // Persist a game to database
   async saveGame(game: Game): Promise<void> {
+    await this.ensureInitialized()
     const existing = await db.select().from(games).where(eq(games.id, game.id)).get()
     const values = {
       id: game.id,
@@ -87,6 +96,7 @@ export class DatabaseService {
     clockWhite?: number
     clockBlack?: number
   }): Promise<void> {
+    await this.ensureInitialized()
     await db.insert(events).values({
       gameId: event.gameId,
       eventType: event.eventType,
@@ -102,15 +112,17 @@ export class DatabaseService {
   // Persist all engine events not yet written (watermarked per match so
   // co-emitted events like move + game_over are never skipped)
   async saveNewEvents(matchId: string): Promise<void> {
-    const events = this.engine.getEvents(matchId)
+    await this.ensureInitialized()
+    const allEvents = this.engine.getEvents(matchId)
     const alreadySaved = this.savedEventCounts.get(matchId) ?? 0
-    for (const event of events.slice(alreadySaved)) {
+    for (const event of allEvents.slice(alreadySaved)) {
       await this.saveEvent(event)
     }
-    this.savedEventCounts.set(matchId, events.length)
+    this.savedEventCounts.set(matchId, allEvents.length)
   }
 
   async saveMessages(gameId: string, messages: Array<{ id: string; sender: string; content: string; timestamp: Date }>): Promise<void> {
+    await this.ensureInitialized()
     if (messages.length === 0) return
     await db.delete(messagesTable).where(eq(messagesTable.gameId, gameId))
     await db.insert(messagesTable).values(
@@ -125,6 +137,7 @@ export class DatabaseService {
   }
 
   async loadMessages(gameId: string): Promise<Array<{ id: string; sender: string; content: string; timestamp: Date }>> {
+    await this.ensureInitialized()
     const rows = await db.select().from(messagesTable).where(eq(messagesTable.gameId, gameId))
     return rows.map(r => ({
       content: r.content,
@@ -135,7 +148,8 @@ export class DatabaseService {
   }
 
   async saveModels(models: Array<{ id: string; name: string; provider: string; config: unknown }>): Promise<void> {
-    await db.delete(modelsTable).run()
+    await this.ensureInitialized()
+    await db.delete(modelsTable)
     if (models.length === 0) return
     await db.insert(modelsTable).values(
       models.map(m => ({
@@ -148,7 +162,9 @@ export class DatabaseService {
   }
 
   async loadModels(): Promise<Array<{ id: string; name: string; provider: string; config: unknown }>> {
-    return db.select().from(modelsTable).all().map(r => ({
+    await this.ensureInitialized()
+    const rows = await db.select().from(modelsTable)
+    return rows.map(r => ({
       config: JSON.parse(r.config),
       id: r.id,
       name: r.name,
@@ -163,33 +179,34 @@ export class DatabaseService {
     volatility: number
     gamesPlayed: number
   }): Promise<void> {
+    await this.ensureInitialized()
     const existing = await db.select().from(ratings).where(eq(ratings.modelName, modelName)).get()
-    
     if (existing) {
       await db.update(ratings)
         .set({
+          gamesPlayed: rating.gamesPlayed,
           glickoRating: rating.rating,
           glickoRd: rating.rd,
           glickoVolatility: rating.volatility,
-          gamesPlayed: rating.gamesPlayed,
           lastUpdated: new Date(),
         })
         .where(eq(ratings.modelName, modelName))
     } else {
       await db.insert(ratings).values({
-        modelName,
-        provider,
+        gamesPlayed: rating.gamesPlayed,
         glickoRating: rating.rating,
         glickoRd: rating.rd,
         glickoVolatility: rating.volatility,
-        gamesPlayed: rating.gamesPlayed,
         lastUpdated: new Date(),
+        modelName,
+        provider,
       })
     }
   }
 
   // Get all ratings from database
   async getAllRatings(): Promise<{ model: string; provider: string; rating: number; rd: number; gamesPlayed: number }[]> {
+    await this.ensureInitialized()
     const dbRatings = await db.select().from(ratings)
     return dbRatings.map(r => ({
       model: r.modelName,
@@ -200,13 +217,14 @@ export class DatabaseService {
     }))
   }
 
-  // Load all matches from database
+  // Reconstitute in-memory engine state from SQLite on startup
   async loadMatches(): Promise<void> {
+    await this.ensureInitialized()
     const dbMatches = await db.select().from(matches)
-    
+
     for (const dbMatch of dbMatches) {
       const dbGames = await db.select().from(games).where(eq(games.matchId, dbMatch.id))
-      
+
       const matchGames: Game[] = dbGames.map(g => ({
         apiCallsThisGame: { black: 0, white: 0 },
         apiCallsThisTurn: { black: 0, white: 0 },
@@ -249,12 +267,14 @@ export class DatabaseService {
 
       // Find current game index
       const currentGameIndex = matchGames.findIndex(g => g.status === 'active')
-      
+
       const match: Match = {
         id: dbMatch.id,
         playerAId: dbMatch.playerAId,
         playerBId: dbMatch.playerBId,
+        // SAFETY: playerAModel was written by saveMatch as JSON.stringify(ModelConfig)
         playerAModel: JSON.parse(dbMatch.playerAModel),
+        // SAFETY: playerBModel was written by saveMatch as JSON.stringify(ModelConfig)
         playerBModel: JSON.parse(dbMatch.playerBModel),
         // SAFETY: dbMatch.status is stored as "active" | "completed"
         status: dbMatch.status as 'active' | 'completed',
@@ -300,12 +320,13 @@ export class DatabaseService {
 
   // Clear all data (for tests) — children first to satisfy FK constraints
   async clearAll(): Promise<void> {
-    db.delete(messagesTable).run()
-    db.delete(modelsTable).run()
-    db.delete(events).run()
-    db.delete(games).run()
-    db.delete(matches).run()
-    db.delete(ratings).run()
+    await this.ensureInitialized()
+    await db.delete(messagesTable)
+    await db.delete(modelsTable)
+    await db.delete(events)
+    await db.delete(games)
+    await db.delete(matches)
+    await db.delete(ratings)
     this.savedEventCounts.clear()
   }
 
@@ -318,6 +339,7 @@ export class DatabaseService {
     volatility: number
     gamesPlayed: number
   }>> {
+    await this.ensureInitialized()
     const dbRatings = await db.select().from(ratings)
     return dbRatings.map(r => ({
       modelName: r.modelName,

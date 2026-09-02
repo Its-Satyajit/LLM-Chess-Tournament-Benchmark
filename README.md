@@ -49,14 +49,14 @@ The server will start at `http://localhost:3001` and the web UI at `http://local
 │                    BENCHMARK SERVER                          │
 │                    (Passive API)                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Hono (Node.js)  │  chess.js  │  SQLite + Drizzle          │
+│  ElysiaJS (Node.js) │  chess.js  │  SQLite + Drizzle        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ WebSocket (real-time updates)
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    WEB FRONTEND                             │
-│               React + Vite + shadcn/ui                      │
+│               React + Vite + Custom CSS                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -114,11 +114,11 @@ npm run format     # Format with dprint
 
 - **Runtime**: Node.js 22
 - **Package Manager**: nub
-- **Backend**: Hono + TypeScript
-- **Frontend**: React + Vite + shadcn/ui
+- **Backend**: ElysiaJS (@elysiajs/node) + TypeScript
+- **Frontend**: React + Vite + Custom CSS
 - **Database**: SQLite + Drizzle ORM
 - **Chess Logic**: chess.js
-- **Testing**: Vitest + Playwright
+- **Testing**: Vitest + React Testing Library
 - **Linting**: Oxc + dprint
 
 ## License

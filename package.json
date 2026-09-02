@@ -6,14 +6,14 @@
     "dev": "concurrently -n server,web -c blue,green \"nub run dev:server\" \"nub run dev:web\"",
     "dev:server": "PORT=3001 nub watch packages/server/src/index.ts",
     "dev:web": "cd packages/web && nubx vite",
-    "build": "pnpm run build:server && pnpm run build:web",
+    "build": "nub run build:server && nub run build:web",
     "test": "cd packages/server && nubx vitest run && cd ../web && nubx vitest run",
     "lint": "nubx oxlint packages/*/src",
     "lint:fix": "nubx oxlint --fix packages/*/src",
     "typecheck": "cd packages/server && tsc --noEmit && cd ../web && tsc --noEmit",
     "start": "npx -y nub@0.7.5 packages/server/src/index.ts",
     "build:server": "cd packages/server && tsc",
-    "build:web": "cd packages/web && pnpm exec vite build"
+    "build:web": "cd packages/web && nub exec vite build"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
@@ -36,5 +36,12 @@
   "allowScripts": {
     "*": true
   },
-  "packageManager": "pnpm@11.23.0+sha512.f00082e5b283a199b74e079da28d155c008fe232f44c8a06ea7ddfa014ecf719fc362f790ecc67b28106ddac2afb24c49a9a079159da560b2ce7d1e98efd11af"
+  "packageManager": "pnpm@11.25.0+sha512.5cde925b4f075f725eb71fbae18a42ffe784524789f19b61c731cb8721ec28aaee160e01a8d5af4fedb2a42cdbf300efe23db356b0d4a17b4d63e11f8ab7c956",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.25.0",
+      "onFail": "warn"
+    }
+  }
 }

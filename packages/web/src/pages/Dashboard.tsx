@@ -57,7 +57,7 @@ export default function Dashboard() {
             </tr>
           ) : (
             ratings.map((r, i) => (
-              <tr key={i}>
+              <tr key={`${r.provider}-${r.model}`}>
                 <td className="rank">{i + 1}</td>
                 <td title={r.model}>{r.model}</td>
                 <td><small>{r.provider}</small></td>

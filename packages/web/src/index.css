@@ -60,6 +60,17 @@ main h2,
   letter-spacing: -0.01em;
 }
 
+/* Console page: one scroll, three anchored sections */
+.page-section {
+  scroll-margin-top: 4.5rem; /* clear the sticky nav on hash jumps */
+}
+.section-rule {
+  border: none;
+  border-top: 2px solid var(--arena-walnut);
+  margin-block: 2.5rem;
+  opacity: 0.4;
+}
+
 /* Step eyebrows — used only where content is a true sequence */
 .step-label {
   display: block;
