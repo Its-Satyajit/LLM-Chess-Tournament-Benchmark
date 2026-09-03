@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 // Prompt version per ADR-006 — bump on any wording change (manifest exposes it)
 export const PROMPT_VERSION = 'v2.0'
 
-export const PROMPT_TEMPLATE = `You are an AI chess engine competing in a benchmark tournament.
+const PROMPT_TEMPLATE = `You are an AI chess engine competing in a benchmark tournament.
 
 ## Match setup
 - Benchmark: LLM Chess Arena — two AI models play a 4-game match.
@@ -62,79 +62,5 @@ If you were not given a token, ask the operator — you cannot play without it.
 ## Objective
 Win the game. If winning is impossible, steer toward a draw rather than losing.`
 
-export interface PromptData {
-  color: 'white' | 'black'
-  playerId: string
-  timeControl: string
-  // Base URL of the arena server, so the model can find /llms-all.txt
-  apiBaseUrl?: string
-  // Bearer token for this player — handed to the model alongside the prompt
-  token?: string
-  // Story 33: Fresh display ID per game (different from auth ID)
-  displayPlayerId?: string
-}
-
-const COLOR_NOTES = {
-  white: 'You move FIRST. Open the game.',
-  black: 'Your opponent moves FIRST. Respond to their opening.',
-} as const satisfies Record<PromptData['color'], string>
-
-export const generatePrompt = (data: PromptData): string =>
-  PROMPT_TEMPLATE
-    // Story 33: Use display ID if available, otherwise fall back to auth ID
-    .replace('{PLAYER_ID}', data.displayPlayerId ?? data.playerId)
-    .replaceAll('{COLOR_NOTE}', COLOR_NOTES[data.color])
-    .replaceAll('{COLOR}', data.color)
-    .replace('{TIME_CONTROL}', data.timeControl)
-    .replaceAll('{API_URL}', data.apiBaseUrl ?? '')
-    .replace('{TOKEN}', data.token ?? '<token-provided-separately>')
-
 export const getPromptHash = (): string =>
   createHash('sha256').update(PROMPT_TEMPLATE).digest('hex')
-
-export const TOOL_DEFINITIONS = [
-  {
-    description: 'Retrieve the current game state including board position, turn, legal moves (if assisted mode), clock, and messages.',
-    name: 'GET_STATE',
-    parameters: {},
-  },
-  {
-    description: 'Submit a chess move in standard algebraic notation (e.g., e4, Nf3, O-O).',
-    name: 'MAKE_MOVE',
-    parameters: {
-      move: { description: 'Chess move in algebraic notation', type: 'string' },
-    },
-  },
-  {
-    description: 'Send a text message to your opponent. Messages are delivered immediately.',
-    name: 'SEND_MESSAGE',
-    parameters: {
-      content: { description: 'Message content', type: 'string' },
-    },
-  },
-  {
-    description: 'Retrieve all messages sent by your opponent.',
-    name: 'GET_MESSAGES',
-    parameters: {},
-  },
-  {
-    description: 'Offer a draw to your opponent. They must accept for the game to end in a draw.',
-    name: 'DRAW_OFFER',
-    parameters: {},
-  },
-  {
-    description: 'Accept a pending draw offer from your opponent, ending the game as a draw.',
-    name: 'DRAW_ACCEPT',
-    parameters: {},
-  },
-  {
-    description: 'Reject a pending draw offer from your opponent. The game continues.',
-    name: 'DRAW_REJECT',
-    parameters: {},
-  },
-  {
-    description: 'Resign the game immediately. This is irreversible.',
-    name: 'RESIGN',
-    parameters: {},
-  },
-]

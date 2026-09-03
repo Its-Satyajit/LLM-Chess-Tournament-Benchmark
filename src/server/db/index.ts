@@ -16,7 +16,7 @@ if (process.loadEnvFile) {
   }
 }
 
-export function getClientConfig() {
+function getClientConfig() {
   const rawUrl = process.env.DATABASE_URL || resolve(process.cwd(), 'data/db.sqlite')
   const authToken =
     process.env.DATABASE_AUTH_TOKEN ||
@@ -40,7 +40,7 @@ export function getClientConfig() {
 }
 
 const clientConfig = getClientConfig()
-export const client = createClient(clientConfig)
+const client = createClient(clientConfig)
 export const db = drizzle(client, { schema })
 
 // Create tables and run lightweight migrations
@@ -144,5 +144,3 @@ export async function initializeDatabase(): Promise<void> {
     console.error('⚠️  Migration check failed:', err)
   }
 }
-
-export { schema }

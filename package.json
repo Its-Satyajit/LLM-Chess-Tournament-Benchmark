@@ -7,10 +7,10 @@
     "dev": "bash scripts/dev-clean.sh",
     "build": "next build",
     "start": "NODE_ENV=production nub server.ts",
-    "test": "vitest run",
+    "test": "nubx vitest run",
     "lint": "nubx oxlint src",
     "lint:fix": "nubx oxlint --fix src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "nubx tsc --noEmit"
   },
   "dependencies": {
     "@elysia/eden": "^1.4.10",
@@ -30,8 +30,7 @@
     "next": "16.3.3",
     "openapi-types": "^12.1.3",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "semantica": "github:sadeqisaidmohaddes-star/semantica"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",

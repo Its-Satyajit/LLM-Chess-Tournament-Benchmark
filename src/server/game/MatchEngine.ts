@@ -74,7 +74,7 @@ export interface Message {
   timestamp: Date
 }
 
-export interface MoveResult {
+export interface MatchMoveResult {
   accepted: boolean
   move?: string
   nextTurn?: 'white' | 'black'
@@ -350,7 +350,7 @@ export class MatchEngine {
     }
   }
 
-  makeMove(matchId: string, gameId: string, playerId: string, move: string): MoveResult {
+  makeMove(matchId: string, gameId: string, playerId: string, move: string): MatchMoveResult {
     const match = this.matches.get(matchId)
     if (!match) {return { accepted: false, error: 'MATCH_NOT_FOUND' }}
     
