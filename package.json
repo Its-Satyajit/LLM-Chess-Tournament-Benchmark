@@ -58,9 +58,6 @@
       "oxlint --fix"
     ]
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "allowScripts": {
     "*": true
   },
