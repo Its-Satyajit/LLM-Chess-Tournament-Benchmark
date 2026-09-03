@@ -94,6 +94,57 @@ body {
   text-shadow: 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
+/* Last-move highlights: subtle blue tint, stronger on destination */
+.chessboard .sq.sq-last-from.light {
+  background-color: #cdd9ec;
+}
+.chessboard .sq.sq-last-from.dark {
+  background-color: #6b85a8;
+}
+.chessboard .sq.sq-last-to.light {
+  background-color: #aac3e3;
+}
+.chessboard .sq.sq-last-to.dark {
+  background-color: #4f6f99;
+}
+
+/* Legal-move hint dots: small ring on highlighted squares */
+.chessboard .sq.sq-hint::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 28%;
+  height: 28%;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.55);
+  pointer-events: none;
+}
+.chessboard .sq.sq-hint:has(.piece-w)::after,
+.chessboard .sq.sq-hint:has(.piece-b)::after {
+  /* When a piece is already on a highlighted square (e.g. capture), use a ring instead of a dot */
+  width: 78%;
+  height: 78%;
+  border-radius: 0.4rem;
+  background: transparent;
+  border: 3px solid rgba(16, 185, 129, 0.65);
+}
+
+/* Check marker: red glow on the king square */
+.chessboard .sq.sq-check {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(244, 63, 94, 0.85) 0%,
+    rgba(244, 63, 94, 0.4) 40%,
+    transparent 75%
+  );
+  animation: sq-check-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sq-check-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25); }
+}
+
 .board-empty {
   aspect-ratio: 1;
   width: 100%;

@@ -11,4 +11,4 @@ cmd = "pnpm install --frozen-lockfile"
 cmd = "pnpm run build"
 
 [start]
-cmd = "npx -y nub@0.7.5 packages/server/src/index.ts"
+cmd = "npx -y nub@0.7.5 server.ts"

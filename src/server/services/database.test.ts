@@ -96,6 +96,63 @@ describe('DatabaseService', () => {
     expect(loadedEvents.length).toBe(events.length)
   })
 
+  it('should persist per-move context columns (game_move, clocks)', async () => {
+    const config: MatchConfig = {
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: 'latest' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: 'latest' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    }
+
+    const match = engine.createMatch(config)
+    await db.saveMatch(match)
+
+    const game = match.games[0]
+    engine.makeMove(match.id, game.id, match.playerAId, 'e4')
+    await db.saveMatch(match)
+    await db.saveNewEvents(match.id)
+
+    // Reload persisted state and verify the move event round-trips its context
+    await db.loadMatches()
+    const moveEvents = engine.getEvents(match.id).filter(e => e.eventType === 'move' && e.gameMove === 1)
+    expect(moveEvents.length).toBeGreaterThan(0)
+    const persisted = moveEvents[moveEvents.length - 1]
+    expect(persisted.data.move).toBe('e4')
+    expect(persisted.data.thinkTimeSeconds).toEqual(expect.any(Number))
+    expect(persisted.clockWhite).toEqual(expect.any(Number))
+    expect(persisted.clockBlack).toEqual(expect.any(Number))
+  })
+
+  it('listMatchesWithGames returns persisted matches newest-first and skips private ones', async () => {
+    const config = (name: string): MatchConfig => ({
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name, provider: 'openai', temperature: 0.7, version: 'latest' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: 'latest' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    })
+
+    const first = engine.createMatch(config('gpt-4o'))
+    await db.saveMatch(first)
+    await new Promise((r) => setTimeout(r, 15))
+    const second = engine.createMatch(config('gemini-1.5-pro'))
+    await db.saveMatch(second)
+    await new Promise((r) => setTimeout(r, 15))
+    const privateMatch = engine.createMatch({ ...config('private-model'), isPrivate: true })
+    await db.saveMatch(privateMatch)
+
+    const list = await db.listMatchesWithGames()
+    // Newest-first; private row must be excluded.
+    expect(list.map((r) => r.match.id)).toEqual([second.id, first.id])
+    expect(list.every((r) => r.match.status === 'active')).toBe(true)
+    for (const r of list) {
+      expect(r.games.length).toBe(4)
+      expect(r.match.playerAModel.name).toBeDefined()
+      expect(r.match.playerAModel.provider).toBe('openai')
+    }
+  })
+
   it('should save and load ratings', async () => {
     await db.saveRating('gpt-4o', 'openai', {
       gamesPlayed: 10,

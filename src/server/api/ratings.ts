@@ -3,8 +3,10 @@ import { database } from '../services/database'
 
 const ratingsRoutes = new Elysia({ prefix: '/api/ratings' })
   .get('/', async () => {
+    console.log('[ratings] GET /api/ratings')
     // Read from SQLite database per spec Story 56
     const dbRatings = await database.getAllRatings()
+    console.log('[ratings] dbRatings', dbRatings.length)
     const ratings = dbRatings.map(r => ({
       draws: 0,
       losses: 0,

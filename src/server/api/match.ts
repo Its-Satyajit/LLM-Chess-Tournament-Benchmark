@@ -84,6 +84,36 @@ function withClock<T extends object>(
 }
 
 const matchRoutes = new Elysia({ prefix: '/api/match' })
+  // --- PUBLIC: List all non-private matches (history page) — reads from Turso
+  // so the listing survives engine restarts and shows rows the in-memory
+  // engine map hasn't loaded yet.
+  .get('/', async () => {
+    const rows = await database.listMatchesWithGames()
+    return {
+      matches: rows.map(({ match, games: matchGames }) => ({
+        completedAt: match.completedAt,
+        createdAt: match.createdAt,
+        currentGameIndex: match.currentGameIndex >= 0 ? match.currentGameIndex : 0,
+        games: matchGames.map((g) => ({
+          blackPlayerId: g.blackPlayerId,
+          gameNumber: g.gameNumber,
+          id: g.id,
+          moveCount: g.moveCount,
+          result: g.result,
+          startingPosition: g.startingPosition,
+          status: g.status,
+          whitePlayerId: g.whitePlayerId,
+        })),
+        id: match.id,
+        playerAId: match.playerAId,
+        playerAModel: match.playerAModel,
+        playerBId: match.playerBId,
+        playerBModel: match.playerBModel,
+        status: match.status,
+        timeControl: match.timeControl,
+      })),
+    }
+  })
   // --- PUBLIC: Create match (returns JWT tokens) ---
   .post('/create', async ({ body }) => {
     const match = engine.createMatch({

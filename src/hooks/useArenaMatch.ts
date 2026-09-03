@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react'
+import { useState, useEffect, useRef, useCallback, useId, useMemo } from 'react'
+import { Chess } from 'chess.js'
 import { getMatch, getGameState, type Match, type GameState } from '../lib/api'
 
 export interface WsEvent {
@@ -43,6 +44,24 @@ export function useArenaMatch() {
   const [wsConnected, setWsConnected] = useState(false)
   const [wsEvents, setWsEvents] = useState<WsEvent[]>([])
   const [reconnectKey, setReconnectKey] = useState(0)
+
+  // Last-move from/to squares for the board highlight. Replayed locally from
+  // the SAN history against chess.js so it works on first load (no WS required)
+  // and after reconnects / game switches.
+  const lastMove = useMemo(() => {
+    if (!moves.length) return null
+    const replay = new Chess()
+    let prev: { from: string; to: string } | null = null
+    for (const san of moves) {
+      try {
+        const r = replay.move(san)
+        if (r) prev = { from: r.from, to: r.to }
+      } catch {
+        return prev
+      }
+    }
+    return prev
+  }, [moves])
 
   const activeGameIdRef = useRef(activeGameId)
   useEffect(() => {
@@ -200,6 +219,7 @@ export function useArenaMatch() {
     matchInfo,
     activeGameId,
     gameState,
+    lastMove,
     moves,
     status,
     error,

@@ -19,6 +19,13 @@ export interface MoveResult {
   error?: string
   isGameOver?: boolean
   result?: GameResult
+  // Per-move details for metrics (present when accepted)
+  captured?: string
+  promotion?: string
+  isCapture?: boolean
+  isPromotion?: boolean
+  isCastle?: boolean
+  givesCheck?: boolean
 }
 
 export interface GameResult {
@@ -157,9 +164,15 @@ export class ChessGame {
         const nextTurn = this.chess.turn()
         return {
           accepted: true,
+          captured: result.captured,
+          givesCheck: this.chess.isCheck(),
+          isCapture: result.isCapture(),
+          isCastle: result.isKingsideCastle() || result.isQueensideCastle(),
           isGameOver: gameOver,
+          isPromotion: result.isPromotion(),
           move: result.san,
           nextTurn: nextTurn === 'w' ? 'white' : 'black',
+          promotion: result.promotion,
           result: gameResult,
         }
       }

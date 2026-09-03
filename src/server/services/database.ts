@@ -1,6 +1,6 @@
 import { db, initializeDatabase } from '../db'
 import { matches, games, events, ratings, messages as messagesTable, models as modelsTable } from '../db/schema'
-import { eq, inArray } from 'drizzle-orm'
+import { desc, eq, inArray } from 'drizzle-orm'
 import { MatchEngine, Match, Game,ClockManager } from '../game/MatchEngine'
 import { ChessGame } from '../chess/ChessGame'
 import type { EventData } from '@llm-chess-arena/shared'
@@ -91,9 +91,9 @@ export class DatabaseService {
     playerId: string
     data: EventData
     timestamp: Date
-    gameMove?: number
-    clockWhite?: number
-    clockBlack?: number
+    gameMove?: number | null
+    clockWhite?: number | null
+    clockBlack?: number | null
   }): Promise<void> {
     await this.ensureInitialized()
     await db.insert(events).values({
@@ -102,9 +102,9 @@ export class DatabaseService {
       playerId: event.playerId,
       data: JSON.stringify(event.data),
       timestamp: event.timestamp,
-      gameMove: event.gameMove || null,
-      clockWhite: event.clockWhite || null,
-      clockBlack: event.clockBlack || null,
+      gameMove: event.gameMove ?? null,
+      clockWhite: event.clockWhite ?? null,
+      clockBlack: event.clockBlack ?? null,
     })
   }
 
@@ -256,6 +256,82 @@ export class DatabaseService {
     }))
   }
 
+  // List all non-private matches with their games, newest-first. Source of
+  // truth for the /history page — reads straight from Turso so the listing
+  // survives engine restarts and reflects rows added out-of-band.
+  async listMatchesWithGames(): Promise<{
+    match: {
+      id: string
+      status: 'pending' | 'active' | 'completed'
+      createdAt: Date
+      completedAt: Date | null
+      currentGameIndex: number
+      timeControl: string
+      playerAId: string
+      playerBId: string
+      playerAModel: { name: string; provider: string; [k: string]: unknown }
+      playerBModel: { name: string; provider: string; [k: string]: unknown }
+    }
+    games: Array<{
+      id: string
+      gameNumber: number
+      status: 'pending' | 'active' | 'completed'
+      result: { winner: string; reason: string } | null
+      moveCount: number
+      whitePlayerId: string
+      blackPlayerId: string
+      startingPosition: 'standard' | 'chess960'
+    }>
+  }[]> {
+    await this.ensureInitialized()
+    const rows = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.isPrivate, false))
+      .orderBy(desc(matches.createdAt), desc(matches.id))
+    const result: Awaited<ReturnType<DatabaseService['listMatchesWithGames']>> = []
+    for (const row of rows) {
+      const dbGames = await db
+        .select()
+        .from(games)
+        .where(eq(games.matchId, row.id))
+        .orderBy(games.gameNumber)
+      // SAFETY: playerA/B model fields were written as JSON.stringify(ModelConfig)
+      const playerAModel = JSON.parse(row.playerAModel) as { name: string; provider: string; [k: string]: unknown }
+      const playerBModel = JSON.parse(row.playerBModel) as { name: string; provider: string; [k: string]: unknown }
+      result.push({
+        games: dbGames.map((g) => ({
+          blackPlayerId: g.blackPlayerId,
+          gameNumber: g.gameNumber,
+          // SAFETY: result is stored as JSON.stringify(GameResult) or null
+          id: g.id,
+          moveCount: g.moveCount,
+          result: g.result ? JSON.parse(g.result) as { winner: string; reason: string } : null,
+          startingPosition: g.fenInitial === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+            ? 'standard' as const
+            : 'chess960' as const,
+          // SAFETY: g.status is a stored union string validated by the writer
+          status: g.status as 'pending' | 'active' | 'completed',
+          whitePlayerId: g.whitePlayerId,
+        })),
+        match: {
+          // SAFETY: status is a stored union string
+          completedAt: row.completedAt,
+          createdAt: row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt),
+          currentGameIndex: dbGames.findIndex((g) => g.status === 'active'),
+          id: row.id,
+          playerAId: row.playerAId,
+          playerAModel,
+          playerBId: row.playerBId,
+          playerBModel,
+          status: row.status as 'pending' | 'active' | 'completed',
+          timeControl: row.timeControl,
+        },
+      })
+    }
+    return result
+  }
+
   // Reconstitute in-memory engine state from SQLite on startup
   async loadMatches(): Promise<void> {
     await this.ensureInitialized()
@@ -342,10 +418,13 @@ export class DatabaseService {
         .from(events)
         .where(inArray(events.gameId, matchGames.map(g => g.id)))
       this.engine.restoreEvents(savedRows.map(r => ({
+        clockBlack: r.clockBlack ?? null,
+        clockWhite: r.clockWhite ?? null,
         // SAFETY: data was written by saveEvent as JSON.stringify(EventData)
         data: JSON.parse(r.data) as EventData,
         eventType: r.eventType,
         gameId: r.gameId,
+        gameMove: r.gameMove ?? null,
         matchId: dbMatch.id,
         playerId: r.playerId,
         timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp),

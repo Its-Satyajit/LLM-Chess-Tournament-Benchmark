@@ -7,13 +7,9 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=/app/data/db.sqlite
-      # CHANGE THIS for any real deployment — the server refuses to start
-      # in production without it (see src/auth/index.ts)
-      - JWT_SECRET=change-me-in-production
-    volumes:
-      - server-data:/app/data
+      # Turso-only — set these to your Turso DB credentials (see .env)
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN}
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     restart: unless-stopped
-
-volumes:
-  server-data:

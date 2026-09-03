@@ -9,17 +9,24 @@ export interface Model {
 }
 
 export async function fetchModels(): Promise<Model[]> {
+  console.log('[fetchModels] fetching /api/admin/models')
   const res = await fetch('/api/admin/models')
+  console.log('[fetchModels] res', res.status, res.ok)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   // SAFETY: /api/admin/models returns JSON shape { models?: Model[] } validated upstream
   const data = (await res.json()) as { models?: Model[] }
+  console.log('[fetchModels] data', data)
   return data.models ?? []
 }
 
 export function useModels() {
+  console.log('[useModels] called')
   return useQuery({
     queryKey: ['models'],
-    queryFn: fetchModels,
+    queryFn: (...args) => {
+      console.log('[useModels] queryFn called', args)
+      return fetchModels()
+    },
     staleTime: 10_000,
   })
 }

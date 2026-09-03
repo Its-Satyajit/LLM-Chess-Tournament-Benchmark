@@ -42,7 +42,7 @@ interface MoveResultResponse { accepted?: boolean; error?: string }
 interface SendMessageResponse { sent?: boolean }
 interface MessagesResponse { messages?: unknown[] }
 interface EventsResponse { events?: unknown[] }
-interface MetricsResponse { totalMoves?: unknown; avgResponseTime?: unknown; blunderRate?: unknown; tacticalAccuracy?: unknown }
+interface MetricsResponse { totalMoves?: unknown; avgResponseTime?: unknown; blunderRate?: unknown; tacticalAccuracy?: unknown; avgThinkTimeSeconds?: unknown; maxThinkTimeSeconds?: unknown; avgTokensPerMove?: unknown; totalTokensUsed?: unknown; totalCaptures?: unknown; totalChecks?: unknown; totalPromotions?: unknown; totalCastles?: unknown; totalIllegalMoves?: unknown }
 interface ManifestResponse {
   manifestVersion?: unknown; benchmarkVersion?: unknown; matchId?: unknown
   parameters?: unknown; players?: unknown; prompt?: unknown
@@ -151,6 +151,15 @@ describe("API Integration", () => {
     expect(data.avgResponseTime).toBeDefined()
     expect(data.blunderRate).toBeDefined()
     expect(data.tacticalAccuracy).toBeDefined()
+    expect(data.avgThinkTimeSeconds).toBeDefined()
+    expect(data.maxThinkTimeSeconds).toBeDefined()
+    expect(data.avgTokensPerMove).toBeDefined()
+    expect(data.totalTokensUsed).toBeDefined()
+    expect(data.totalCaptures).toBeDefined()
+    expect(data.totalChecks).toBeDefined()
+    expect(data.totalPromotions).toBeDefined()
+    expect(data.totalCastles).toBeDefined()
+    expect(data.totalIllegalMoves).toBeDefined()
   })
 
   it("GET /api/match/:matchId/manifest — returns manifest", async () => {

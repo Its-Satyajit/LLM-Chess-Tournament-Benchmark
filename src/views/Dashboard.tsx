@@ -5,8 +5,9 @@ import { Trophy, Medal, RotateCcw } from 'lucide-react'
 import { useRatings } from '../lib/queries'
 
 export default function Dashboard() {
-  const { data, isLoading, isError, refetch } = useRatings()
+  const { data, isLoading, isError, error, refetch } = useRatings()
   const ratings = data?.ratings ?? []
+  console.log('[Dashboard] isLoading', isLoading, 'isError', isError, 'error', error, 'ratings', ratings)
 
   const handleRefresh = useCallback(() => {
     void refetch()

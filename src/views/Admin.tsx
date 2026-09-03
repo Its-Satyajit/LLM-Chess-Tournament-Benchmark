@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useEffect,
   type FocusEvent,
   type ChangeEvent,
   type FormEvent,
@@ -219,9 +220,13 @@ function ProviderFieldInput({
 }
 
 export default function Admin() {
-  const { data: modelsData, isLoading: isModelsLoading, isError: isModelsError, refetch: reloadModels } = useModels()
+  const { data: modelsData, isLoading: isModelsLoading, isError: isModelsError, error: modelsErrorObj, refetch: reloadModels } = useModels()
   const models = useMemo(() => modelsData ?? [], [modelsData])
   const modelsState: LoadState = isModelsLoading ? 'loading' : isModelsError ? 'error' : 'loaded'
+  console.log('[Admin] render', { isModelsLoading, isModelsError, modelsErrorObj, modelsData })
+  useEffect(() => {
+    console.log('[Admin] useEffect isModelsLoading', isModelsLoading, 'modelsData', modelsData, 'error', modelsErrorObj)
+  }, [isModelsLoading, modelsData, modelsErrorObj])
 
   const addModelMutation = useAddModel()
   const deleteModelMutation = useDeleteModel()
@@ -390,10 +395,10 @@ export default function Admin() {
             </form.Field>
 
             <form.Subscribe selector={selectCanSubmit}>
-              {([canSubmit, isSubmitting]) => (
+              {([, isSubmitting]) => (
                 <button
                   type="submit"
-                  disabled={!canSubmit || isSubmitting || addModelMutation.isPending}
+                  disabled={isSubmitting || addModelMutation.isPending}
                   className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" />

@@ -96,8 +96,9 @@ export const env = createEnv({
     PORT: process.env.PORT,
   },
   server: {
-    DATABASE_AUTH_TOKEN: typeboxEnv(t.Optional(t.String())),
-    DATABASE_URL: typeboxEnv(t.Optional(t.String())),
+    // Turso-only: DATABASE_URL must be libsql://... ; local file fallback removed
+    DATABASE_AUTH_TOKEN: typeboxEnv(t.String({ minLength: 1 })),
+    DATABASE_URL: typeboxEnv(t.String({ minLength: 1 })),
     HOST: typeboxEnv(t.String(), { default: 'localhost' }),
     JWT_SECRET: typeboxEnv(t.String(), { default: 'dev-secret-change-in-production' }),
     NODE_ENV: typeboxEnv(
