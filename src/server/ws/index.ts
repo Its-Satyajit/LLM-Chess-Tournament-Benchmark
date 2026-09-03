@@ -8,10 +8,18 @@ export interface WsConnection {
   send: (data: string) => void
 }
 
+const globalForWs = globalThis as unknown as {
+  __llm_chess_rooms__?: Map<string, Set<WsConnection>>
+  __llm_chess_subscriptions__?: Map<WsConnection, Set<string>>
+}
+
 // Store active connections by matchId
-export const rooms = new Map<string, Set<WsConnection>>()
+export const rooms = globalForWs.__llm_chess_rooms__ ?? new Map<string, Set<WsConnection>>()
+globalForWs.__llm_chess_rooms__ = rooms
+
 // Track which rooms each WebSocket is subscribed to
-export const wsSubscriptions = new Map<WsConnection, Set<string>>()
+export const wsSubscriptions = globalForWs.__llm_chess_subscriptions__ ?? new Map<WsConnection, Set<string>>()
+globalForWs.__llm_chess_subscriptions__ = wsSubscriptions
 
 export function broadcast(matchId: string, event: EventData & { type: string }) {
   const clients = rooms.get(matchId)

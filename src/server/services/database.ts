@@ -391,4 +391,8 @@ export class DatabaseService {
   }
 }
 
-export const database = new DatabaseService()
+const globalForDb = globalThis as unknown as {
+  __llm_chess_database__?: DatabaseService
+}
+export const database = globalForDb.__llm_chess_database__ ?? new DatabaseService()
+globalForDb.__llm_chess_database__ = database
