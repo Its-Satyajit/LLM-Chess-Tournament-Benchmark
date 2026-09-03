@@ -26,12 +26,17 @@ void nextApp.prepare().then(() => {
     void handle(req, res)
   })
 
-  // Intercept WebSocket upgrade requests for /ws
+  // Intercept WebSocket upgrade requests for /ws.
+  // NOTE: non-/ws upgrades (e.g. Turbopack's `/_next/hmr` in dev) must be
+  // left alone. Actively rejecting them (socket.destroy()/end()) breaks the
+  // dev HMR client in a way that prevents client-side hydration entirely,
+  // so Next.js pages render SSR shells with no data. In production there is
+  // no HMR client, so unknown upgrades are safe to destroy.
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     if (url.pathname === '/ws') {
       wsHandler.handleUpgrade(req, socket, head)
-    } else {
+    } else if (!dev) {
       socket.destroy()
     }
   })
