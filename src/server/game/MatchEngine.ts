@@ -32,7 +32,7 @@ export interface Match {
 }
 
 // Blunder/tactical analysis over replayed game history (ADR-017)
-export interface GameAnalysis {
+interface GameAnalysis {
   blunders: number
   tacticalBlunders: number
   tacticalMoves: number

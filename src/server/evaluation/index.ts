@@ -26,10 +26,6 @@ export function glickoToDisplay(rating: number): number {
   return SCALE * rating + 1500
 }
 
-export function displayToGlicko(display: number): number {
-  return (display - 1500) / SCALE
-}
-
 // Glicko-2 math functions
 function g(phi: number): number {
   return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI))

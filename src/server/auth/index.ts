@@ -1,5 +1,4 @@
 import jwt from 'jsonwebtoken'
-import { status } from 'elysia'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'llm-chess-arena-secret-change-in-production'
 
@@ -81,16 +80,6 @@ export const rateLimiter = new RateLimiter(10, 1000)
 // 20 requests per turn per player (resets on each turn change)
 export const turnRateLimiter = new RateLimiter(20, 60_000)
 
-// Extract playerId from Authorization header
-export function extractPlayerId(headers: Record<string, string | undefined>): string | null {
-  const authHeader = headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    return null
-  }
-  const payload = verifyPlayerToken(authHeader.slice(7))
-  return payload?.sub ?? null
-}
-
 // --- Request authentication (Story 44: tokens scoped to a single match) ---
 
 export type AuthResult =
@@ -117,32 +106,4 @@ export function authenticateRequest(
   }
 
   return { ok: true, playerId: payload.sub }
-}
-
-// --- ElysiaJS Guard ---
-
-export function authGuard() {
-  return {
-    // SAFETY: type assertion is validated by upstream schema/parsing
-    as: 'scoped' as const,
-    beforeHandle({ headers, params }: { headers: Record<string, string>; params: Record<string, string> }) {
-      const authHeader = headers.authorization
-      if (!authHeader?.startsWith('Bearer ')) {
-        return status(401, { error: 'Unauthorized' })
-      }
-
-      const token = authHeader.slice(7)
-      const payload = verifyPlayerToken(token)
-      if (!payload) {
-        return status(401, { error: 'Invalid token' })
-      }
-
-      // Cross-match access prevention
-      if (payload.match !== params.matchId) {
-        return status(403, { error: 'Forbidden' })
-      }
-
-      return { playerId: payload.sub }
-    },
-  }
 }
