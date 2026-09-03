@@ -21,6 +21,7 @@ export default function Arena() {
     moves,
     status,
     loading,
+    error,
     wsConnected,
     wsEvents,
     connectToMatch,
@@ -70,6 +71,7 @@ export default function Arena() {
         onConnectMatch={handleLaunchConnect}
         onTokensReceived={handleTokensReceived}
         loading={loading}
+        error={error}
       />
 
       {/* Main High-Density Workspace Grid */}

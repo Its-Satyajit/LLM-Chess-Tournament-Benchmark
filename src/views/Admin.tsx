@@ -5,10 +5,12 @@ import {
   useState,
   useCallback,
   useMemo,
-  type FormEvent,
-  type ChangeEvent,
   type FocusEvent,
+  type ChangeEvent,
+  type FormEvent,
 } from 'react'
+import Link from 'next/link'
+import { useForm } from '@tanstack/react-form'
 import {
   Settings,
   Plus,
@@ -35,6 +37,9 @@ const selectOnFocus = (e: FocusEvent<HTMLInputElement>) => {
   e.currentTarget.select()
 }
 
+const selectCanSubmit = (state: { canSubmit: boolean; isSubmitting: boolean }) =>
+  [state.canSubmit, state.isSubmitting] as const
+
 function autoDetectProvider(name: string): string {
   const lower = name.toLowerCase()
   if (lower.startsWith('gpt') || lower.startsWith('o1') || lower.startsWith('o3')) return 'openai'
@@ -47,7 +52,6 @@ function autoDetectProvider(name: string): string {
   return 'custom'
 }
 
-// One token handoff row: read-only value + copy button
 function TokenRow({
   label,
   value,
@@ -161,10 +165,69 @@ function ModelRowItem({
   )
 }
 
+function ModelNameFieldInput({
+  value,
+  onChange,
+  onBlur,
+}: {
+  value: string
+  onChange: (val: string) => void
+  onBlur: () => void
+}) {
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      onChange(e.target.value)
+    },
+    [onChange],
+  )
+
+  return (
+    <label className="flex-1 min-w-[140px] text-xs font-semibold text-slate-300">
+      Model Name
+      <input
+        value={value}
+        onBlur={onBlur}
+        onChange={handleChange}
+        placeholder="e.g., gpt-4o, claude-3-5-sonnet"
+        className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
+      />
+    </label>
+  )
+}
+
+function ProviderFieldInput({
+  value,
+  onChange,
+  onBlur,
+}: {
+  value: string
+  onChange: (val: string) => void
+  onBlur: () => void
+}) {
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      onChange(e.target.value)
+    },
+    [onChange],
+  )
+
+  return (
+    <label className="flex-1 min-w-[120px] text-xs font-semibold text-slate-300">
+      Provider
+      <input
+        value={value}
+        onBlur={onBlur}
+        onChange={handleChange}
+        placeholder="openai, anthropic, google, custom"
+        className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
+      />
+    </label>
+  )
+}
+
 export default function Admin() {
   const [models, setModels] = useState<Model[]>([])
   const [modelsState, setModelsState] = useState<LoadState>('loading')
-  const [newModel, setNewModel] = useState({ name: '', provider: '' })
   const [addingModel, setAddingModel] = useState(false)
   const [modelError, setModelError] = useState('')
   const [modelSuccess, setModelSuccess] = useState('')
@@ -180,7 +243,7 @@ export default function Admin() {
     try {
       const res = await fetch('/api/admin/models')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      // SAFETY: /api/admin/models response payload adheres to { models: Model[] } schema
+      // SAFETY: /api/admin/models returns a JSON object adhering to { models?: Model[] }
       const data = (await res.json()) as { models?: Model[] }
       setModels(data.models || [])
       setModelsState('loaded')
@@ -217,39 +280,55 @@ export default function Admin() {
     }
   }, [])
 
-  const addModel = useCallback(async () => {
-    const trimmedName = newModel.name.trim()
-    if (!trimmedName) {
-      setModelError('Please enter a model name (e.g. gpt-4o, claude-3-5-sonnet).')
-      return
-    }
-    const resolvedProvider = newModel.provider.trim() || autoDetectProvider(trimmedName)
-
-    setAddingModel(true)
-    setModelError('')
-    setModelSuccess('')
-    try {
-      const res = await fetch('/api/admin/models', {
-        body: JSON.stringify({ name: trimmedName, provider: resolvedProvider }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || `HTTP ${res.status}`)
+  // TanStack Form setup for reliable model creation
+  const form = useForm({
+    defaultValues: {
+      name: '',
+      provider: '',
+    },
+    onSubmit: async ({ value }) => {
+      const trimmedName = value.name.trim()
+      if (!trimmedName) {
+        setModelError('Please enter a model name (e.g. gpt-4o, claude-3-5-sonnet).')
+        return
       }
-      setNewModel({ name: '', provider: '' })
-      setModelSuccess(`Model "${trimmedName}" added successfully!`)
-      setTimeout(() => setModelSuccess(''), 3500)
-      await fetchModels()
-      window.dispatchEvent(new CustomEvent('models-updated'))
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to register model'
-      setModelError(msg)
-    } finally {
-      setAddingModel(false)
-    }
-  }, [newModel, fetchModels])
+      const resolvedProvider = value.provider.trim() || autoDetectProvider(trimmedName)
+
+      setAddingModel(true)
+      setModelError('')
+      setModelSuccess('')
+      try {
+        const res = await fetch('/api/admin/models', {
+          body: JSON.stringify({ name: trimmedName, provider: resolvedProvider }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.message || `HTTP ${res.status}`)
+        }
+        form.reset()
+        setModelSuccess(`Model "${trimmedName}" added successfully!`)
+        setTimeout(() => setModelSuccess(''), 3500)
+        await fetchModels()
+        window.dispatchEvent(new CustomEvent('models-updated'))
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to register model'
+        setModelError(msg)
+      } finally {
+        setAddingModel(false)
+      }
+    },
+  })
+
+  const handleFormSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      void form.handleSubmit()
+    },
+    [form],
+  )
 
   const deleteModel = useCallback(
     async (id: string) => {
@@ -264,26 +343,6 @@ export default function Admin() {
       }
     },
     [fetchModels],
-  )
-
-  const handleNameChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    setNewModel((prev) => {
-      const autoProvider = prev.provider ? prev.provider : autoDetectProvider(val)
-      return { name: val, provider: autoProvider }
-    })
-  }, [])
-
-  const handleProviderChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    setNewModel((prev) => ({ ...prev, provider: e.target.value }))
-  }, [])
-
-  const handleFormSubmit = useCallback(
-    (e: FormEvent) => {
-      e.preventDefault()
-      void addModel()
-    },
-    [addModel],
   )
 
   const toggleModel = useCallback((idx: number) => {
@@ -349,12 +408,6 @@ export default function Admin() {
     void copyToken('B')
   }, [copyToken])
 
-  const openInArena = useCallback(() => {
-    if (!matchResult?.matchId) return
-    localStorage.setItem('arena.lastMatchId', matchResult.matchId)
-    document.getElementById('arena')?.scrollIntoView({ behavior: 'smooth' })
-  }, [matchResult])
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-[#242f42] pb-3">
@@ -373,37 +426,40 @@ export default function Admin() {
             <p className="text-xs text-slate-400">Add an LLM model by name and API provider.</p>
           </div>
 
+          {/* TanStack Form Component */}
           <form onSubmit={handleFormSubmit} className="flex flex-wrap items-end gap-2">
-            <label className="flex-1 min-w-[140px] text-xs font-semibold text-slate-300">
-              Model Name
-              <input
-                type="text"
-                placeholder="e.g., gpt-4o, claude-3-5-sonnet"
-                value={newModel.name}
-                onChange={handleNameChange}
-                className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-              />
-            </label>
+            <form.Field name="name">
+              {(field) => (
+                <ModelNameFieldInput
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                />
+              )}
+            </form.Field>
 
-            <label className="flex-1 min-w-[120px] text-xs font-semibold text-slate-300">
-              Provider
-              <input
-                type="text"
-                placeholder="openai, anthropic, google, custom"
-                value={newModel.provider}
-                onChange={handleProviderChange}
-                className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-              />
-            </label>
+            <form.Field name="provider">
+              {(field) => (
+                <ProviderFieldInput
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                />
+              )}
+            </form.Field>
 
-            <button
-              type="submit"
-              disabled={addingModel}
-              className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>{addingModel ? 'Adding...' : 'Add'}</span>
-            </button>
+            <form.Subscribe selector={selectCanSubmit}>
+              {([canSubmit, isSubmitting]) => (
+                <button
+                  type="submit"
+                  disabled={!canSubmit || isSubmitting || addingModel}
+                  className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>{isSubmitting || addingModel ? 'Adding...' : 'Add'}</span>
+                </button>
+              )}
+            </form.Subscribe>
           </form>
 
           {modelError && (
@@ -502,14 +558,13 @@ export default function Admin() {
                 copied={copiedToken === 'B'}
                 onCopy={handleCopyB}
               />
-              <button
-                type="button"
-                onClick={openInArena}
+              <Link
+                href="/"
                 className="flex w-full h-8 items-center justify-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#1c2536] text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
               >
                 <span>Open in Arena</span>
                 <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+              </Link>
             </div>
           )}
         </div>

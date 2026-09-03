@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ChangeEvent } from 'react'
+import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react'
+import { useForm } from '@tanstack/react-form'
 import { Zap, Play, Radio, AlertCircle } from 'lucide-react'
 import { createMatch } from '../../lib/api'
 
@@ -14,6 +15,36 @@ export interface QuickLaunchBarProps {
   onConnectMatch: (matchId: string) => void
   onTokensReceived?: (tokens: { white: string; black: string }) => void
   loading: boolean
+  error?: string
+}
+
+function MatchIdInputField({
+  value,
+  onChange,
+  onBlur,
+}: {
+  value: string
+  onChange: (val: string) => void
+  onBlur: () => void
+}) {
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      onChange(e.target.value)
+    },
+    [onChange],
+  )
+
+  return (
+    <input
+      type="text"
+      placeholder="e.g., MATCH-1787585865651-702F59"
+      value={value}
+      onBlur={onBlur}
+      onChange={handleChange}
+      className="h-8 w-48 sm:w-60 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 font-mono text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+      aria-label="Match ID"
+    />
+  )
 }
 
 export default function QuickLaunchBar({
@@ -21,12 +52,12 @@ export default function QuickLaunchBar({
   onConnectMatch,
   onTokensReceived,
   loading,
+  error,
 }: QuickLaunchBarProps) {
   const [models, setModels] = useState<ModelOption[]>([])
   const [selectedWhite, setSelectedWhite] = useState<string>('')
   const [selectedBlack, setSelectedBlack] = useState<string>('')
   const [isLaunching, setIsLaunching] = useState(false)
-  const [manualId, setManualId] = useState('')
   const [launchError, setLaunchError] = useState('')
 
   const loadModelsList = useCallback(() => {
@@ -79,10 +110,6 @@ export default function QuickLaunchBar({
     setSelectedBlack(e.target.value)
   }, [])
 
-  const handleManualIdChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    setManualId(e.target.value)
-  }, [])
-
   const handleQuickLaunch = useCallback(async () => {
     const whiteModel = models.find((m) => m.name === selectedWhite) || { name: selectedWhite, provider: 'openai' }
     const blackModel = models.find((m) => m.name === selectedBlack) || { name: selectedBlack, provider: 'anthropic' }
@@ -104,14 +131,26 @@ export default function QuickLaunchBar({
     }
   }, [models, selectedWhite, selectedBlack, onConnectMatch, onTokensReceived])
 
-  const handleManualConnect = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault()
-      if (manualId.trim()) {
-        onConnectMatch(manualId.trim())
+  // TanStack Form for Match Connection
+  const connectForm = useForm({
+    defaultValues: {
+      matchId: '',
+    },
+    onSubmit: async ({ value }) => {
+      const trimmed = value.matchId.trim()
+      if (trimmed) {
+        onConnectMatch(trimmed)
       }
     },
-    [manualId, onConnectMatch],
+  })
+
+  const handleConnectSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      void connectForm.handleSubmit()
+    },
+    [connectForm],
   )
 
   return (
@@ -171,7 +210,7 @@ export default function QuickLaunchBar({
           </button>
         </div>
 
-        {/* Right: Manual Match ID & Connect */}
+        {/* Right: Manual Match ID & Connect (TanStack Form) */}
         <div className="flex items-center gap-2">
           {currentMatchId && (
             <span className="hidden xl:inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 px-2.5 py-1 text-[11px] font-mono text-slate-300">
@@ -179,19 +218,20 @@ export default function QuickLaunchBar({
               <span>{currentMatchId}</span>
             </span>
           )}
-          <form onSubmit={handleManualConnect} className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="e.g., MATCH-1787585865651-702F59"
-              value={manualId}
-              onChange={handleManualIdChange}
-              className="h-8 w-48 sm:w-60 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 font-mono text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
-              aria-label="Match ID"
-            />
+          <form onSubmit={handleConnectSubmit} className="flex items-center gap-2">
+            <connectForm.Field name="matchId">
+              {(field) => (
+                <MatchIdInputField
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={field.handleChange}
+                />
+              )}
+            </connectForm.Field>
             <button
               type="submit"
               disabled={loading}
-              className="h-8 rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+              className="h-8 rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
             >
               Connect
             </button>
@@ -199,10 +239,10 @@ export default function QuickLaunchBar({
         </div>
       </div>
 
-      {launchError && (
-        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs text-rose-400 border border-rose-500/20">
+      {(launchError || error) && (
+        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs text-rose-400 border border-rose-500/20" role="alert">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          <span>{launchError}</span>
+          <span>{launchError || error}</span>
         </div>
       )}
     </div>

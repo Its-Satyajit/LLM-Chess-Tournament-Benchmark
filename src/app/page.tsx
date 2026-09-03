@@ -1,7 +1,7 @@
 'use client'
 
-import Console from '@/views/Console'
+import Arena from '@/views/Arena'
 
 export default function HomePage() {
-  return <Console />
+  return <Arena />
 }
