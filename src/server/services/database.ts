@@ -391,7 +391,8 @@ export class DatabaseService {
   }
 }
 
-const globalForDb = globalThis as unknown as {
+// SAFETY: Global augmentation preserves the shared DatabaseService singleton across Next.js worker bundles
+const globalForDb = globalThis as typeof globalThis & {
   __llm_chess_database__?: DatabaseService
 }
 export const database = globalForDb.__llm_chess_database__ ?? new DatabaseService()

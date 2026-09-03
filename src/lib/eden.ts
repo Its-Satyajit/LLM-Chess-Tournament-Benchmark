@@ -11,4 +11,7 @@ const getOrigin = (): string => {
   return 'http://localhost:3000'
 }
 
-export const api = treaty<typeof app>(getOrigin())
+export const api = treaty<typeof app>(getOrigin(), {
+  // SAFETY: dynamic fetcher ensures Vitest global fetch mocks applied after import are respected
+  fetcher: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),
+})

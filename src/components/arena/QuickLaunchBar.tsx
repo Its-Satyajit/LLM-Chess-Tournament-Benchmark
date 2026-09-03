@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react'
+import { useState, useCallback, type ChangeEvent, type FormEvent } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { Zap, Play, Radio, AlertCircle } from 'lucide-react'
-import { createMatch } from '../../lib/api'
+import { useModels, useCreateMatch, type Model } from '../../lib/queries'
 
-interface ModelOption {
-  name: string
-  provider: string
-}
+const DEFAULT_MODELS: Model[] = [
+  { name: 'gpt-4o', provider: 'openai' },
+  { name: 'claude-3-5-sonnet', provider: 'anthropic' },
+]
 
 export interface QuickLaunchBarProps {
   currentMatchId: string
@@ -54,53 +54,14 @@ export default function QuickLaunchBar({
   loading,
   error,
 }: QuickLaunchBarProps) {
-  const [models, setModels] = useState<ModelOption[]>([])
-  const [selectedWhite, setSelectedWhite] = useState<string>('')
-  const [selectedBlack, setSelectedBlack] = useState<string>('')
-  const [isLaunching, setIsLaunching] = useState(false)
+  const { data: modelsData } = useModels()
+  const models = modelsData && modelsData.length > 0 ? modelsData : DEFAULT_MODELS
+
+  const [selectedWhite, setSelectedWhite] = useState<string>('gpt-4o')
+  const [selectedBlack, setSelectedBlack] = useState<string>('claude-3-5-sonnet')
   const [launchError, setLaunchError] = useState('')
 
-  const loadModelsList = useCallback(() => {
-    let active = true
-    fetch('/api/admin/models')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: { models?: ModelOption[] }) => {
-        if (active && data.models && data.models.length > 0) {
-          setModels(data.models)
-          setSelectedWhite((prev) => prev || data.models?.[0]?.name || '')
-          setSelectedBlack((prev) => prev || data.models?.[1]?.name || data.models?.[0]?.name || '')
-        }
-      })
-      .catch(() => {
-        if (active) {
-          const defaults: ModelOption[] = [
-            { name: 'gpt-4o', provider: 'openai' },
-            { name: 'claude-3-5-sonnet', provider: 'anthropic' },
-          ]
-          setModels(defaults)
-          setSelectedWhite('gpt-4o')
-          setSelectedBlack('claude-3-5-sonnet')
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    const cleanup = loadModelsList()
-    const handleUpdated = () => {
-      loadModelsList()
-    }
-    window.addEventListener('models-updated', handleUpdated)
-    return () => {
-      cleanup?.()
-      window.removeEventListener('models-updated', handleUpdated)
-    }
-  }, [loadModelsList])
+  const createMatchMutation = useCreateMatch()
 
   const handleWhiteChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     setSelectedWhite(e.target.value)
@@ -114,22 +75,19 @@ export default function QuickLaunchBar({
     const whiteModel = models.find((m) => m.name === selectedWhite) || { name: selectedWhite, provider: 'openai' }
     const blackModel = models.find((m) => m.name === selectedBlack) || { name: selectedBlack, provider: 'anthropic' }
 
-    setIsLaunching(true)
     setLaunchError('')
     try {
-      const match = await createMatch(
-        { maxOutputTokens: 1000, name: whiteModel.name, provider: whiteModel.provider, temperature: 0.7, version: '1.0' },
-        { maxOutputTokens: 1000, name: blackModel.name, provider: blackModel.provider, temperature: 0.7, version: '1.0' },
-      )
+      const match = await createMatchMutation.mutateAsync({
+        playerAModel: { maxOutputTokens: 1000, name: whiteModel.name, provider: whiteModel.provider, temperature: 0.7, version: '1.0' },
+        playerBModel: { maxOutputTokens: 1000, name: blackModel.name, provider: blackModel.provider, temperature: 0.7, version: '1.0' },
+      })
       onTokensReceived?.({ black: match.playerBToken, white: match.playerAToken })
       onConnectMatch(match.matchId)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Launch failed'
       setLaunchError(msg)
-    } finally {
-      setIsLaunching(false)
     }
-  }, [models, selectedWhite, selectedBlack, onConnectMatch, onTokensReceived])
+  }, [models, selectedWhite, selectedBlack, createMatchMutation, onConnectMatch, onTokensReceived])
 
   // TanStack Form for Match Connection
   const connectForm = useForm({
@@ -202,11 +160,11 @@ export default function QuickLaunchBar({
           <button
             type="button"
             onClick={handleQuickLaunch}
-            disabled={isLaunching || loading}
+            disabled={createMatchMutation.isPending || loading}
             className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
           >
             <Play className="h-3.5 w-3.5 fill-current" />
-            <span>{isLaunching ? 'Launching...' : '1-Click Launch'}</span>
+            <span>{createMatchMutation.isPending ? 'Launching...' : '1-Click Launch'}</span>
           </button>
         </div>
 

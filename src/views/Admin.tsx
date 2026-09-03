@@ -1,7 +1,6 @@
 'use client'
 
 import {
-  useEffect,
   useState,
   useCallback,
   useMemo,
@@ -23,13 +22,7 @@ import {
   AlertCircle,
   Cpu,
 } from 'lucide-react'
-import { createMatch } from '../lib/api'
-
-interface Model {
-  id?: string
-  name: string
-  provider: string
-}
+import { useModels, useAddModel, useDeleteModel, useCreateMatch, type Model } from '../lib/queries'
 
 type LoadState = 'loading' | 'loaded' | 'error'
 
@@ -226,59 +219,22 @@ function ProviderFieldInput({
 }
 
 export default function Admin() {
-  const [models, setModels] = useState<Model[]>([])
-  const [modelsState, setModelsState] = useState<LoadState>('loading')
-  const [addingModel, setAddingModel] = useState(false)
+  const { data: modelsData, isLoading: isModelsLoading, isError: isModelsError, refetch: reloadModels } = useModels()
+  const models = useMemo(() => modelsData ?? [], [modelsData])
+  const modelsState: LoadState = isModelsLoading ? 'loading' : isModelsError ? 'error' : 'loaded'
+
+  const addModelMutation = useAddModel()
+  const deleteModelMutation = useDeleteModel()
+  const createMatchMutation = useCreateMatch()
+
   const [modelError, setModelError] = useState('')
   const [modelSuccess, setModelSuccess] = useState('')
   const [matchResult, setMatchResult] = useState<{ matchId?: string; ok: boolean; text: string } | null>(null)
   const [createdTokens, setCreatedTokens] = useState<{ black: string; white: string } | null>(null)
-  const [startingMatch, setStartingMatch] = useState(false)
   const [selectedModels, setSelectedModels] = useState<number[]>([])
   const [copiedToken, setCopiedToken] = useState<'A' | 'B' | null>(null)
 
   const selectedModelsSet = useMemo(() => new Set(selectedModels), [selectedModels])
-
-  const fetchModels = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/models')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      // SAFETY: /api/admin/models returns a JSON object adhering to { models?: Model[] }
-      const data = (await res.json()) as { models?: Model[] }
-      setModels(data.models || [])
-      setModelsState('loaded')
-    } catch {
-      setModelsState('error')
-    }
-  }, [])
-
-  const reloadModels = useCallback(() => {
-    setModelsState('loading')
-    void fetchModels()
-  }, [fetchModels])
-
-  useEffect(() => {
-    let active = true
-    fetch('/api/admin/models')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: { models?: Model[] }) => {
-        if (active) {
-          setModels(data.models || [])
-          setModelsState('loaded')
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setModelsState('error')
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [])
 
   // TanStack Form setup for reliable model creation
   const form = useForm({
@@ -294,29 +250,16 @@ export default function Admin() {
       }
       const resolvedProvider = value.provider.trim() || autoDetectProvider(trimmedName)
 
-      setAddingModel(true)
       setModelError('')
       setModelSuccess('')
       try {
-        const res = await fetch('/api/admin/models', {
-          body: JSON.stringify({ name: trimmedName, provider: resolvedProvider }),
-          headers: { 'Content-Type': 'application/json' },
-          method: 'POST',
-        })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          throw new Error(err.message || `HTTP ${res.status}`)
-        }
+        await addModelMutation.mutateAsync({ name: trimmedName, provider: resolvedProvider })
         form.reset()
         setModelSuccess(`Model "${trimmedName}" added successfully!`)
         setTimeout(() => setModelSuccess(''), 3500)
-        await fetchModels()
-        window.dispatchEvent(new CustomEvent('models-updated'))
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to register model'
         setModelError(msg)
-      } finally {
-        setAddingModel(false)
       }
     },
   })
@@ -333,17 +276,18 @@ export default function Admin() {
   const deleteModel = useCallback(
     async (id: string) => {
       try {
-        const res = await fetch(`/api/admin/models/${id}`, { method: 'DELETE' })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        await fetchModels()
-        window.dispatchEvent(new CustomEvent('models-updated'))
+        await deleteModelMutation.mutateAsync(id)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to delete model'
         setModelError(msg)
       }
     },
-    [fetchModels],
+    [deleteModelMutation],
   )
+
+  const handleRetry = useCallback(() => {
+    void reloadModels()
+  }, [reloadModels])
 
   const toggleModel = useCallback((idx: number) => {
     setSelectedModels((prev) => {
@@ -358,17 +302,16 @@ export default function Admin() {
   }, [])
 
   const startMatch = useCallback(async () => {
-    if (selectedModels.length !== 2 || startingMatch) return
-    setStartingMatch(true)
+    if (selectedModels.length !== 2 || createMatchMutation.isPending) return
     setMatchResult(null)
     setCreatedTokens(null)
     try {
       const mA = models[selectedModels[0]]
       const mB = models[selectedModels[1]]
-      const data = await createMatch(
-        { maxOutputTokens: 1000, name: mA.name, provider: mA.provider, temperature: 0.7, version: '1.0' },
-        { maxOutputTokens: 1000, name: mB.name, provider: mB.provider, temperature: 0.7, version: '1.0' },
-      )
+      const data = await createMatchMutation.mutateAsync({
+        playerAModel: { maxOutputTokens: 1000, name: mA.name, provider: mA.provider, temperature: 0.7, version: '1.0' },
+        playerBModel: { maxOutputTokens: 1000, name: mB.name, provider: mB.provider, temperature: 0.7, version: '1.0' },
+      })
       setMatchResult({
         matchId: data.matchId,
         ok: true,
@@ -379,12 +322,10 @@ export default function Admin() {
         white: data.playerAToken,
       })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error'
-      setMatchResult({ ok: false, text: `Failed to create match: ${msg}` })
-    } finally {
-      setStartingMatch(false)
+      const msg = err instanceof Error ? err.message : 'Failed to start match'
+      setMatchResult({ ok: false, text: msg })
     }
-  }, [selectedModels, startingMatch, models])
+  }, [selectedModels, models, createMatchMutation])
 
   const copyToken = useCallback(
     async (which: 'A' | 'B') => {
@@ -452,11 +393,11 @@ export default function Admin() {
               {([canSubmit, isSubmitting]) => (
                 <button
                   type="submit"
-                  disabled={!canSubmit || isSubmitting || addingModel}
+                  disabled={!canSubmit || isSubmitting || addModelMutation.isPending}
                   className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  <span>{isSubmitting || addingModel ? 'Adding...' : 'Add'}</span>
+                  <span>{isSubmitting || addModelMutation.isPending ? 'Adding...' : 'Add'}</span>
                 </button>
               )}
             </form.Subscribe>
@@ -484,7 +425,7 @@ export default function Admin() {
           {modelsState === 'error' && (
             <div className="flex items-center gap-2 text-xs text-rose-400">
               <span>Failed to load models.</span>
-              <button type="button" onClick={reloadModels} className="underline">
+              <button type="button" onClick={handleRetry} className="underline">
                 Retry
               </button>
             </div>
@@ -530,11 +471,11 @@ export default function Admin() {
           <button
             type="button"
             onClick={startMatch}
-            disabled={selectedModels.length !== 2 || startingMatch}
+            disabled={selectedModels.length !== 2 || createMatchMutation.isPending}
             className="flex w-full h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow transition hover:bg-emerald-500 disabled:opacity-50"
           >
             <Play className="h-3.5 w-3.5 fill-current" />
-            <span>{startingMatch ? 'Creating Match...' : 'Start Match'}</span>
+            <span>{createMatchMutation.isPending ? 'Creating Match...' : 'Start Match'}</span>
           </button>
 
           {matchResult && (

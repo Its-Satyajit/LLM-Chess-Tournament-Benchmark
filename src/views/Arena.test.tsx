@@ -2,8 +2,27 @@
 import '../test/setup'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Arena from './Arena'
 import * as api from '../lib/api'
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+}
+
+function renderArena() {
+  const qc = createTestQueryClient()
+  return render(
+    <QueryClientProvider client={qc}>
+      <Arena />
+    </QueryClientProvider>,
+  )
+}
 
 interface TestWsPayload {
   type: string
@@ -59,9 +78,7 @@ describe('Arena page (modular)', () => {
   })
 
   it('renders initial empty arena state', () => {
-    render(
-      <Arena />
-    )
+    renderArena()
 
     expect(screen.getByText(/Enter a Match ID to connect/i)).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/MATCH-/i)).toBeInTheDocument()
@@ -114,9 +131,7 @@ describe('Arena page (modular)', () => {
     vi.spyOn(api, 'getMatch').mockResolvedValue(mockMatch)
     vi.spyOn(api, 'getGameState').mockResolvedValue(mockGameState)
 
-    render(
-      <Arena />
-    )
+    renderArena()
 
     const input = screen.getByPlaceholderText(/MATCH-/i)
     fireEvent.change(input, { target: { value: 'MATCH-TEST-1' } })
@@ -211,9 +226,7 @@ describe('Arena page (modular)', () => {
     vi.spyOn(api, 'getMatch').mockResolvedValueOnce(mockMatchG1)
     vi.spyOn(api, 'getGameState').mockResolvedValueOnce(mockGameStateG1)
 
-    render(
-      <Arena />
-    )
+    renderArena()
 
     const input = screen.getByPlaceholderText(/MATCH-/i)
     fireEvent.change(input, { target: { value: 'MATCH-TEST-1' } })

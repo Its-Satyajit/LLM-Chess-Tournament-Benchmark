@@ -8,7 +8,8 @@ export interface WsConnection {
   send: (data: string) => void
 }
 
-const globalForWs = globalThis as unknown as {
+// SAFETY: Global augmentation preserves WebSocket room connections across server module contexts
+const globalForWs = globalThis as typeof globalThis & {
   __llm_chess_rooms__?: Map<string, Set<WsConnection>>
   __llm_chess_subscriptions__?: Map<WsConnection, Set<string>>
 }

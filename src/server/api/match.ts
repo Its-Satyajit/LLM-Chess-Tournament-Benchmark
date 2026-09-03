@@ -173,7 +173,11 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
 
     if (!playerId) {
       // Spectator: no clock attribution, no clocks visible (ADR-005)
-      return engine.getGameState(params.matchId, params.gameId)
+      try {
+        return engine.getGameState(params.matchId, params.gameId)
+      } catch {
+        return status(404, { error: 'Game not found' })
+      }
     }
 
     // ADR-004: Track API call for budget enforcement

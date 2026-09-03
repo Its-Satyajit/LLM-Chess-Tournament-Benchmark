@@ -9,7 +9,7 @@ describe('API facade via Eden Treaty', () => {
   beforeAll(() => {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const req = new Request(input, init)
-      if (req.url.startsWith('http://localhost:3000')) {
+      if (req.url.startsWith('http://localhost:')) {
         return app.fetch(req)
       }
       return originalFetch(input, init)

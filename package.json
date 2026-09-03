@@ -20,6 +20,7 @@
     "@sinclair/typebox": "^0.34.52",
     "@t3-oss/env-nextjs": "^0.13.11",
     "@tanstack/react-form": "^1.33.5",
+    "@tanstack/react-query": "^5.102.6",
     "better-sqlite3": "^13.0.3",
     "chess.js": "^1.4.0",
     "crossws": "^0.4.12",

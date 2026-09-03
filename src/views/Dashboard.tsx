@@ -1,32 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { Trophy, Medal, RotateCcw } from 'lucide-react'
-import { getRatings, type Rating } from '../lib/api'
-
-type LoadState = 'loading' | 'loaded' | 'error'
+import { useRatings } from '../lib/queries'
 
 export default function Dashboard() {
-  const [ratings, setRatings] = useState<Rating[]>([])
-  const [state, setState] = useState<LoadState>('loading')
+  const { data, isLoading, isError, refetch } = useRatings()
+  const ratings = data?.ratings ?? []
 
-  const fetchRatings = useCallback(() => {
-    void getRatings()
-      .then((data) => {
-        setRatings(data.ratings)
-        setState('loaded')
-      })
-      .catch(() => setState('error'))
-  }, [])
-
-  const retry = useCallback(() => {
-    setState('loading')
-    fetchRatings()
-  }, [fetchRatings])
-
-  useEffect(() => {
-    fetchRatings()
-  }, [fetchRatings])
+  const handleRefresh = useCallback(() => {
+    void refetch()
+  }, [refetch])
 
   return (
     <div className="rounded-xl border border-[#242f42] bg-[#161d2a] p-4 sm:p-6 shadow-xl">
@@ -43,7 +27,7 @@ export default function Dashboard() {
 
         <button
           type="button"
-          onClick={retry}
+          onClick={handleRefresh}
           className="flex items-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1 text-xs font-semibold text-slate-300 transition hover:bg-[#1a2230] hover:text-white"
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -66,20 +50,20 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#242f42]/60">
-            {state === 'loading' && (
+            {isLoading && (
               <tr>
                 <td colSpan={8} className="py-8 text-center text-slate-500" aria-busy="true">
                   Loading leaderboard standings...
                 </td>
               </tr>
             )}
-            {state === 'error' && (
+            {isError && (
               <tr>
                 <td colSpan={8} className="py-6 text-center text-rose-400">
                   <p role="alert" className="mb-2">Failed to load ratings — server unreachable.</p>
                   <button
                     type="button"
-                    onClick={retry}
+                    onClick={handleRefresh}
                     className="rounded bg-rose-600/20 px-3 py-1 text-xs font-semibold text-rose-300 border border-rose-500/30"
                   >
                     Retry
@@ -87,14 +71,14 @@ export default function Dashboard() {
                 </td>
               </tr>
             )}
-            {state === 'loaded' && ratings.length === 0 && (
+            {!isLoading && !isError && ratings.length === 0 && (
               <tr>
                 <td colSpan={8} className="py-8 text-center text-slate-500">
                   No match ratings recorded yet. Complete a match to see rankings.
                 </td>
               </tr>
             )}
-            {state === 'loaded' &&
+            {!isLoading && !isError &&
               ratings.map((r, i) => {
                 const isFirst = i === 0
                 const isSecond = i === 1
