@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, type ChangeEvent } from 'react'
+import { Zap, Play, Radio, AlertCircle } from 'lucide-react'
 import { createMatch } from '../../lib/api'
 
 interface ModelOption {
@@ -28,8 +29,7 @@ export default function QuickLaunchBar({
   const [manualId, setManualId] = useState('')
   const [launchError, setLaunchError] = useState('')
 
-  // Fetch registered models on mount
-  useEffect(() => {
+  const loadModelsList = useCallback(() => {
     let active = true
     fetch('/api/admin/models')
       .then((res) => {
@@ -39,13 +39,11 @@ export default function QuickLaunchBar({
       .then((data: { models?: ModelOption[] }) => {
         if (active && data.models && data.models.length > 0) {
           setModels(data.models)
-          setSelectedWhite(data.models[0].name)
-          const second = data.models[1]?.name || data.models[0].name
-          setSelectedBlack(second)
+          setSelectedWhite((prev) => prev || data.models?.[0]?.name || '')
+          setSelectedBlack((prev) => prev || data.models?.[1]?.name || data.models?.[0]?.name || '')
         }
       })
       .catch(() => {
-        // Fallback default mock models if none yet registered
         if (active) {
           const defaults: ModelOption[] = [
             { name: 'gpt-4o', provider: 'openai' },
@@ -60,6 +58,18 @@ export default function QuickLaunchBar({
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    const cleanup = loadModelsList()
+    const handleUpdated = () => {
+      loadModelsList()
+    }
+    window.addEventListener('models-updated', handleUpdated)
+    return () => {
+      cleanup?.()
+      window.removeEventListener('models-updated', handleUpdated)
+    }
+  }, [loadModelsList])
 
   const handleWhiteChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     setSelectedWhite(e.target.value)
@@ -110,7 +120,9 @@ export default function QuickLaunchBar({
         {/* Left: Quick Match Creator */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-xs">⚡</span>
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-xs">
+              <Zap className="h-3.5 w-3.5 text-emerald-400" />
+            </span>
             <span>Quick Match:</span>
           </div>
 
@@ -152,9 +164,10 @@ export default function QuickLaunchBar({
             type="button"
             onClick={handleQuickLaunch}
             disabled={isLaunching || loading}
-            className="h-8 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
           >
-            {isLaunching ? 'Launching...' : '1-Click Launch'}
+            <Play className="h-3.5 w-3.5 fill-current" />
+            <span>{isLaunching ? 'Launching...' : '1-Click Launch'}</span>
           </button>
         </div>
 
@@ -162,7 +175,7 @@ export default function QuickLaunchBar({
         <div className="flex items-center gap-2">
           {currentMatchId && (
             <span className="hidden xl:inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 px-2.5 py-1 text-[11px] font-mono text-slate-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
               <span>{currentMatchId}</span>
             </span>
           )}
@@ -187,8 +200,9 @@ export default function QuickLaunchBar({
       </div>
 
       {launchError && (
-        <div className="mt-2 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs text-rose-400 border border-rose-500/20">
-          {launchError}
+        <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs text-rose-400 border border-rose-500/20">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>{launchError}</span>
         </div>
       )}
     </div>

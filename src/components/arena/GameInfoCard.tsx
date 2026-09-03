@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import Link from 'next/link'
+import { AlertTriangle, Flag, Circle } from 'lucide-react'
 import type { Match, GameState } from '../../lib/api'
 
 export interface GameInfoCardProps {
@@ -80,17 +81,19 @@ export default function GameInfoCard({
           <div className="flex items-center gap-1.5 rounded-md border border-[#2e3c54] bg-[#111620] px-2.5 py-1 text-xs">
             <span className="text-slate-400">Turn:</span>
             <span className="font-bold capitalize text-slate-100">{gameState.turn}</span>
-            <span className="text-sm">{gameState.turn === 'white' ? '♙' : '♟'}</span>
+            <Circle className={`h-2.5 w-2.5 fill-current ${gameState.turn === 'white' ? 'text-amber-100' : 'text-slate-500'}`} />
           </div>
 
           {gameState.isCheck && (
-            <span className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-300">
-              ⚠ Check
+            <span className="flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-300">
+              <AlertTriangle className="h-3 w-3" />
+              <span>Check</span>
             </span>
           )}
           {gameState.isCheckmate && (
-            <span className="rounded-md border border-rose-500/40 bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-300">
-              ⚑ Checkmate!
+            <span className="flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-300">
+              <Flag className="h-3 w-3" />
+              <span>Checkmate!</span>
             </span>
           )}
           {gameState.isStalemate && (

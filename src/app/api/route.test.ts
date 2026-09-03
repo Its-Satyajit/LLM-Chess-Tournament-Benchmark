@@ -24,4 +24,20 @@ describe('Next.js Elysia Route Handler', () => {
     expect(json).toHaveProperty('ratings')
     expect(Array.isArray(json.ratings)).toBe(true)
   })
+
+  it('should handle GET and POST /api/admin/models', async () => {
+    const getReq = new Request('http://localhost:3000/api/admin/models')
+    const getRes = await GET(getReq)
+    expect(getRes.status).toBe(200)
+
+    const postReq = new Request('http://localhost:3000/api/admin/models', {
+      body: JSON.stringify({ name: 'test-gpt', provider: 'openai' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+    const postRes = await POST(postReq)
+    expect(postRes.status).toBe(200)
+    const postJson = await postRes.json()
+    expect(postJson).toMatchObject({ name: 'test-gpt', provider: 'openai' })
+  })
 })

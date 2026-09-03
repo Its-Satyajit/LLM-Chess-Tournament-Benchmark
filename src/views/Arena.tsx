@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Shield } from 'lucide-react'
 import ChessBoard from '../components/ChessBoard'
 import Plaque from '../components/arena/Plaque'
 import QuickLaunchBar from '../components/arena/QuickLaunchBar'
@@ -97,8 +98,8 @@ export default function Arena() {
             </div>
           ) : (
             <div className="board-empty p-8">
-              <div className="space-y-2">
-                <div className="text-4xl">♟️</div>
+              <div className="space-y-2 text-center">
+                <Shield className="h-10 w-10 text-slate-500 mx-auto" />
                 <p className="text-sm font-semibold text-slate-200">Enter a Match ID to connect</p>
                 <p className="text-xs text-slate-400">
                   Or use the <span className="text-emerald-400 font-semibold">1-Click Launch</span> bar above to start a match instantly.

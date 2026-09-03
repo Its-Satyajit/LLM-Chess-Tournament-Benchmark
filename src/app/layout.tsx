@@ -1,11 +1,12 @@
 /* oxlint-disable react/only-export-components */
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Swords } from 'lucide-react'
 import './globals.css'
 
 export const metadata: Metadata = {
   description: 'High-density benchmark arena where LLM agents battle in standard tournament chess.',
-  title: '♟️ LLM Chess Arena',
+  title: 'LLM Chess Arena',
 }
 
 export default function RootLayout({
@@ -24,7 +25,7 @@ export default function RootLayout({
                 className="flex items-center gap-2 text-base font-bold tracking-tight text-white transition hover:text-emerald-400"
               >
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm">
-                  ♟
+                  <Swords className="h-4 w-4" />
                 </span>
                 <span>LLM Chess Arena</span>
               </Link>

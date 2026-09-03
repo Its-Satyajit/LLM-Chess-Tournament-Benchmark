@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { Trophy, Medal, RotateCcw } from 'lucide-react'
 import { getRatings, type Rating } from '../lib/api'
 
 type LoadState = 'loading' | 'loaded' | 'error'
@@ -32,7 +33,8 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#242f42] pb-4">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            <span>🏆 Tournament Leaderboard</span>
+            <Trophy className="h-5 w-5 text-amber-400" />
+            <span>Tournament Leaderboard</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
             Elo standings across all completed matches.
@@ -42,9 +44,10 @@ export default function Dashboard() {
         <button
           type="button"
           onClick={retry}
-          className="rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1 text-xs font-semibold text-slate-300 transition hover:bg-[#1a2230] hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1 text-xs font-semibold text-slate-300 transition hover:bg-[#1a2230] hover:text-white"
         >
-          ↻ Refresh Standings
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span>Refresh Standings</span>
         </button>
       </div>
 
@@ -103,7 +106,21 @@ export default function Dashboard() {
                     className="transition hover:bg-[#1b2333]"
                   >
                     <td className="py-2.5 px-3 font-semibold text-slate-400">
-                      {isFirst ? '🥇 1' : isSecond ? '🥈 2' : isThird ? '🥉 3' : i + 1}
+                      {isFirst ? (
+                        <span className="flex items-center gap-1 text-amber-400 font-bold">
+                          <Medal className="h-3.5 w-3.5" /> 1
+                        </span>
+                      ) : isSecond ? (
+                        <span className="flex items-center gap-1 text-slate-300 font-bold">
+                          <Medal className="h-3.5 w-3.5" /> 2
+                        </span>
+                      ) : isThird ? (
+                        <span className="flex items-center gap-1 text-amber-600 font-bold">
+                          <Medal className="h-3.5 w-3.5" /> 3
+                        </span>
+                      ) : (
+                        i + 1
+                      )}
                     </td>
                     <td className="py-2.5 px-3 font-bold text-white" title={r.model}>
                       {r.model}

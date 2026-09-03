@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { Chess } from 'chess.js'
 import { getGameState, getMatch, type GameState, type Match } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'
+import { ArrowLeft, Film, Shield, SkipBack, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
@@ -282,12 +283,14 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
         <div className="flex items-center gap-3">
           <Link
             href="/#arena"
-            className="rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-[#1a2230]"
+            className="flex items-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-[#1a2230]"
           >
-            ← Back
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Back</span>
           </Link>
           <h2 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            <span>🎬 Game Replay Theatre</span>
+            <Film className="h-5 w-5 text-emerald-400" />
+            <span>Game Replay Theatre</span>
           </h2>
           {game && (
             <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-300">
@@ -301,7 +304,7 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
         {/* Board & Transport Navigator */}
         <div className="lg:col-span-6 xl:col-span-5 space-y-3">
           <div className="flex justify-center">
-            {fen ? <ChessBoard fen={fen} /> : <div className="board-empty"><span>♟️</span></div>}
+            {fen ? <ChessBoard fen={fen} /> : <div className="board-empty"><Shield className="h-10 w-10 text-slate-500" /></div>}
           </div>
 
           {/* Playback Controls Card */}
@@ -316,35 +319,39 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
             <div className="flex items-center justify-center gap-2">
               <button
                 type="button"
-                className="rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white"
+                className="flex items-center gap-1 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white"
                 onClick={handleStart}
               >
-                ⏮ Start
+                <SkipBack className="h-3.5 w-3.5" />
+                <span>Start</span>
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white disabled:opacity-40"
+                className="flex items-center gap-1 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white disabled:opacity-40"
                 onClick={handlePrev}
                 disabled={currentMove === 0}
                 aria-label="Previous move"
               >
-                ◀ Prev
+                <ChevronLeft className="h-3.5 w-3.5" />
+                <span>Prev</span>
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white disabled:opacity-40"
+                className="flex items-center gap-1 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white disabled:opacity-40"
                 onClick={handleNext}
                 disabled={currentMove === moves.length}
                 aria-label="Next move"
               >
-                Next ▶
+                <span>Next</span>
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white"
+                className="flex items-center gap-1 rounded-lg border border-[#2e3c54] bg-[#111620] px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-[#1c2536] hover:text-white"
                 onClick={handleEnd}
               >
-                End ⏭
+                <span>End</span>
+                <SkipForward className="h-3.5 w-3.5" />
               </button>
             </div>
 

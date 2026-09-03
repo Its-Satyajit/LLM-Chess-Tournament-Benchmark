@@ -160,9 +160,49 @@ export class DatabaseService {
     )
   }
 
+  async addModel(model: { id: string; name: string; provider: string; config: unknown }): Promise<void> {
+    await this.ensureInitialized()
+    await db.insert(modelsTable).values({
+      config: JSON.stringify(model.config),
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+    })
+  }
+
+  async deleteModel(modelId: string): Promise<void> {
+    await this.ensureInitialized()
+    await db.delete(modelsTable).where(eq(modelsTable.id, modelId))
+  }
+
   async loadModels(): Promise<Array<{ id: string; name: string; provider: string; config: unknown }>> {
     await this.ensureInitialized()
     const rows = await db.select().from(modelsTable)
+    if (rows.length === 0) {
+      // Seed default benchmark models if empty
+      const defaults = [
+        {
+          config: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: '1.0' },
+          id: 'MODEL-default-gpt4o',
+          name: 'gpt-4o',
+          provider: 'openai',
+        },
+        {
+          config: { maxOutputTokens: 4096, name: 'claude-3-5-sonnet', provider: 'anthropic', temperature: 0.7, version: '1.0' },
+          id: 'MODEL-default-claude35',
+          name: 'claude-3-5-sonnet',
+          provider: 'anthropic',
+        },
+        {
+          config: { maxOutputTokens: 4096, name: 'gemini-1.5-pro', provider: 'google', temperature: 0.7, version: '1.0' },
+          id: 'MODEL-default-gemini15',
+          name: 'gemini-1.5-pro',
+          provider: 'google',
+        },
+      ]
+      await this.saveModels(defaults)
+      return defaults
+    }
     return rows.map(r => ({
       config: JSON.parse(r.config),
       id: r.id,

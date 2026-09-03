@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type ChangeEvent } from 'react'
+import { Copy, Check, Circle } from 'lucide-react'
 import type { Match } from '../../lib/api'
 
 const PROMPT_TEMPLATE = `You are a chess engine playing as {PLAYER_ID}.
@@ -143,8 +144,9 @@ export default function LlmPromptCard({
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400">LLM Prompt</span>
           {copyState === 'copied' && (
-            <output aria-live="polite" className="text-xs font-bold text-emerald-400 animate-bounce">
-              ✓ Copied to clipboard!
+            <output aria-live="polite" className="flex items-center gap-1 text-xs font-bold text-emerald-400 animate-bounce">
+              <Check className="h-3.5 w-3.5" />
+              <span>Copied to clipboard!</span>
             </output>
           )}
         </div>
@@ -153,9 +155,10 @@ export default function LlmPromptCard({
           <button
             type="button"
             onClick={copyPrompt}
-            className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98]"
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98]"
           >
-            📋 Copy Prompt
+            <Copy className="h-3.5 w-3.5" />
+            <span>Copy Prompt</span>
           </button>
           <button
             type="button"
@@ -175,25 +178,27 @@ export default function LlmPromptCard({
           <button
             type="button"
             onClick={handleSelectWhite}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
               promptSide === 'white'
                 ? 'bg-[#1c2536] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>♙ White:</span>
+            <Circle className="h-2.5 w-2.5 fill-current text-amber-100" />
+            <span>White:</span>
             <span className="max-w-[120px] truncate">{whitePlayerLabel}</span>
           </button>
           <button
             type="button"
             onClick={handleSelectBlack}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition ${
               promptSide === 'black'
                 ? 'bg-[#1c2536] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>♟ Black:</span>
+            <Circle className="h-2.5 w-2.5 fill-current text-slate-500" />
+            <span>Black:</span>
             <span className="max-w-[120px] truncate">{blackPlayerLabel}</span>
           </button>
         </div>

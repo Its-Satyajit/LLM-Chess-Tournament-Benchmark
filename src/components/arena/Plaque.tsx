@@ -1,3 +1,5 @@
+import { Crown, Shield, Clock } from 'lucide-react'
+
 export interface PlaqueProps {
   glyph: string
   name: string
@@ -15,6 +17,7 @@ function formatClock(seconds: number | undefined): string {
 export default function Plaque({ glyph, name, clock, toMove }: PlaqueProps) {
   const low = toMove && clock !== undefined && clock <= 30
   const clockText = formatClock(clock)
+  const isWhite = glyph === '♙' || glyph === 'white' || glyph.toLowerCase().includes('white')
 
   return (
     <div
@@ -26,11 +29,12 @@ export default function Plaque({ glyph, name, clock, toMove }: PlaqueProps) {
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sm ${
-            glyph === '♙' ? 'bg-amber-100/10 text-amber-100' : 'bg-slate-800 text-slate-200'
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+            isWhite ? 'bg-amber-100/10 text-amber-200' : 'bg-slate-800 text-slate-300'
           }`}
+          aria-hidden="true"
         >
-          {glyph}
+          {isWhite ? <Crown className="h-3.5 w-3.5" /> : <Shield className="h-3.5 w-3.5" />}
         </span>
 
         <div className="flex items-center gap-1.5 min-w-0">
@@ -48,7 +52,7 @@ export default function Plaque({ glyph, name, clock, toMove }: PlaqueProps) {
 
       {clock !== undefined && (
         <div
-          className={`flex items-baseline gap-1 rounded-md px-2 py-0.5 font-mono text-xs font-bold tabular-nums tracking-wider ${
+          className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-xs font-bold tabular-nums tracking-wider ${
             low
               ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse'
               : toMove
@@ -57,6 +61,7 @@ export default function Plaque({ glyph, name, clock, toMove }: PlaqueProps) {
           }`}
           aria-label={`${name} clock`}
         >
+          <Clock className="h-3 w-3 opacity-60" />
           <span>{clockText}</span>
           <span className="text-[10px] font-normal text-slate-500">{clock}s</span>
         </div>

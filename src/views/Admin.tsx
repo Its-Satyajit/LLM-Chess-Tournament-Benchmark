@@ -1,6 +1,26 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, type FormEvent, type ChangeEvent, type FocusEvent } from 'react'
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  type FormEvent,
+  type ChangeEvent,
+  type FocusEvent,
+} from 'react'
+import {
+  Settings,
+  Plus,
+  Trash2,
+  Users,
+  Play,
+  Check,
+  Copy,
+  ArrowRight,
+  AlertCircle,
+  Cpu,
+} from 'lucide-react'
 import { createMatch } from '../lib/api'
 
 interface Model {
@@ -15,8 +35,30 @@ const selectOnFocus = (e: FocusEvent<HTMLInputElement>) => {
   e.currentTarget.select()
 }
 
+function autoDetectProvider(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.startsWith('gpt') || lower.startsWith('o1') || lower.startsWith('o3')) return 'openai'
+  if (lower.startsWith('claude')) return 'anthropic'
+  if (lower.startsWith('gemini')) return 'google'
+  if (lower.startsWith('deepseek')) return 'deepseek'
+  if (lower.startsWith('mistral') || lower.startsWith('mixtral')) return 'mistral'
+  if (lower.startsWith('llama')) return 'meta'
+  if (lower.startsWith('qwen')) return 'qwen'
+  return 'custom'
+}
+
 // One token handoff row: read-only value + copy button
-function TokenRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
+function TokenRow({
+  label,
+  value,
+  copied,
+  onCopy,
+}: {
+  label: string
+  value: string
+  copied: boolean
+  onCopy: () => void
+}) {
   return (
     <div className="space-y-1">
       <span className="text-[11px] font-semibold text-slate-400">{label}</span>
@@ -31,9 +73,19 @@ function TokenRow({ label, value, copied, onCopy }: { label: string; value: stri
         <button
           type="button"
           onClick={onCopy}
-          className="rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+          className="flex items-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
         >
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="text-emerald-400">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5 text-slate-400" />
+              <span>Copy</span>
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -46,33 +98,66 @@ function ModelRowItem({
   isSelected,
   maxSelected,
   onToggle,
+  onDelete,
 }: {
   model: Model
   index: number
   isSelected: boolean
   maxSelected: boolean
   onToggle: (index: number) => void
+  onDelete?: (id: string) => void
 }) {
   const handleClick = useCallback(() => {
     onToggle(index)
   }, [index, onToggle])
 
+  const handleDelete = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (model.id && onDelete) {
+        onDelete(model.id)
+      }
+    },
+    [model.id, onDelete],
+  )
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      aria-pressed={isSelected}
-      aria-label={`Select ${model.name} (${model.provider})`}
-      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium transition ${
+    <div
+      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs transition ${
         isSelected
           ? 'border-emerald-500 bg-emerald-950/30 text-white shadow-sm'
-          : 'border-[#2e3c54] bg-[#111620] text-slate-300 hover:bg-[#1a2230] hover:text-white'
+          : 'border-[#2e3c54] bg-[#111620] text-slate-300 hover:bg-[#1a2230]'
       }`}
-      title={maxSelected && !isSelected ? 'Deselect a model first — max 2' : undefined}
     >
-      <span className="font-semibold text-slate-200">{model.name}</span>
-      <span className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-400">{model.provider}</span>
-    </button>
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-pressed={isSelected}
+        aria-label={`Select ${model.name} (${model.provider})`}
+        className="flex flex-1 items-center justify-between text-left"
+        title={maxSelected && !isSelected ? 'Deselect a model first — max 2' : undefined}
+      >
+        <div className="flex items-center gap-2">
+          <Cpu className={`h-3.5 w-3.5 ${isSelected ? 'text-emerald-400' : 'text-slate-500'}`} />
+          <span className="font-semibold text-slate-200">{model.name}</span>
+        </div>
+        <span className="mr-2 rounded bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-400">
+          {model.provider}
+        </span>
+      </button>
+
+      {model.id && onDelete && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          aria-label={`Delete ${model.name}`}
+          className="rounded p-1 text-slate-500 transition hover:bg-rose-500/20 hover:text-rose-400"
+          title="Delete model"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -82,6 +167,7 @@ export default function Admin() {
   const [newModel, setNewModel] = useState({ name: '', provider: '' })
   const [addingModel, setAddingModel] = useState(false)
   const [modelError, setModelError] = useState('')
+  const [modelSuccess, setModelSuccess] = useState('')
   const [matchResult, setMatchResult] = useState<{ matchId?: string; ok: boolean; text: string } | null>(null)
   const [createdTokens, setCreatedTokens] = useState<{ black: string; white: string } | null>(null)
   const [startingMatch, setStartingMatch] = useState(false)
@@ -132,12 +218,19 @@ export default function Admin() {
   }, [])
 
   const addModel = useCallback(async () => {
-    if (!newModel.name || !newModel.provider || addingModel) return
+    const trimmedName = newModel.name.trim()
+    if (!trimmedName) {
+      setModelError('Please enter a model name (e.g. gpt-4o, claude-3-5-sonnet).')
+      return
+    }
+    const resolvedProvider = newModel.provider.trim() || autoDetectProvider(trimmedName)
+
     setAddingModel(true)
     setModelError('')
+    setModelSuccess('')
     try {
       const res = await fetch('/api/admin/models', {
-        body: JSON.stringify(newModel),
+        body: JSON.stringify({ name: trimmedName, provider: resolvedProvider }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       })
@@ -146,17 +239,39 @@ export default function Admin() {
         throw new Error(err.message || `HTTP ${res.status}`)
       }
       setNewModel({ name: '', provider: '' })
+      setModelSuccess(`Model "${trimmedName}" added successfully!`)
+      setTimeout(() => setModelSuccess(''), 3500)
       await fetchModels()
+      window.dispatchEvent(new CustomEvent('models-updated'))
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to register model'
       setModelError(msg)
     } finally {
       setAddingModel(false)
     }
-  }, [newModel, addingModel, fetchModels])
+  }, [newModel, fetchModels])
+
+  const deleteModel = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/admin/models/${id}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        await fetchModels()
+        window.dispatchEvent(new CustomEvent('models-updated'))
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to delete model'
+        setModelError(msg)
+      }
+    },
+    [fetchModels],
+  )
 
   const handleNameChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    setNewModel((prev) => ({ ...prev, name: e.target.value }))
+    const val = e.target.value
+    setNewModel((prev) => {
+      const autoProvider = prev.provider ? prev.provider : autoDetectProvider(val)
+      return { name: val, provider: autoProvider }
+    })
   }, [])
 
   const handleProviderChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
@@ -243,7 +358,10 @@ export default function Admin() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-[#242f42] pb-3">
-        <h2 className="text-lg font-bold tracking-tight text-white">⚙️ Tournament Admin & Models</h2>
+        <div className="flex items-center gap-2">
+          <Settings className="h-5 w-5 text-emerald-400" />
+          <h2 className="text-lg font-bold tracking-tight text-white">Tournament Admin & Models</h2>
+        </div>
         <span className="text-xs text-slate-400">Configure benchmark participants</span>
       </div>
 
@@ -260,7 +378,7 @@ export default function Admin() {
               Model Name
               <input
                 type="text"
-                placeholder="e.g., gpt-4o"
+                placeholder="e.g., gpt-4o, claude-3-5-sonnet"
                 value={newModel.name}
                 onChange={handleNameChange}
                 className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
@@ -271,7 +389,7 @@ export default function Admin() {
               Provider
               <input
                 type="text"
-                placeholder="e.g., openai"
+                placeholder="openai, anthropic, google, custom"
                 value={newModel.provider}
                 onChange={handleProviderChange}
                 className="mt-1 h-8 w-full rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
@@ -281,30 +399,51 @@ export default function Admin() {
             <button
               type="submit"
               disabled={addingModel}
-              className="h-8 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
             >
-              {addingModel ? 'Adding...' : 'Add'}
+              <Plus className="h-3.5 w-3.5" />
+              <span>{addingModel ? 'Adding...' : 'Add'}</span>
             </button>
           </form>
 
-          {modelError && <p role="alert" className="text-xs text-rose-400">{modelError}</p>}
-          {modelsState === 'loading' && <p className="text-xs text-slate-500" aria-busy="true">Loading models...</p>}
+          {modelError && (
+            <div className="flex items-center gap-1.5 text-xs text-rose-400" role="alert">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{modelError}</span>
+            </div>
+          )}
+
+          {modelSuccess && (
+            <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              <span>{modelSuccess}</span>
+            </div>
+          )}
+
+          {modelsState === 'loading' && (
+            <p className="text-xs text-slate-500" aria-busy="true">
+              Loading models...
+            </p>
+          )}
           {modelsState === 'error' && (
             <div className="flex items-center gap-2 text-xs text-rose-400">
               <span>Failed to load models.</span>
-              <button type="button" onClick={reloadModels} className="underline">Retry</button>
+              <button type="button" onClick={reloadModels} className="underline">
+                Retry
+              </button>
             </div>
           )}
 
           <div className="space-y-1.5 pt-2 border-t border-[#242f42]">
             {models.map((m, i) => (
               <ModelRowItem
-                key={`${m.provider}-${m.name}`}
+                key={`${m.provider}-${m.name}-${m.id || i}`}
                 model={m}
                 index={i}
                 isSelected={selectedModelsSet.has(i)}
                 maxSelected={selectedModels.length >= 2}
                 onToggle={toggleModel}
+                onDelete={deleteModel}
               />
             ))}
           </div>
@@ -318,7 +457,8 @@ export default function Admin() {
           </div>
 
           <div className="rounded-lg border border-[#242f42] bg-[#111620] p-3 text-xs">
-            <output aria-live="polite" className="block text-slate-300">
+            <output aria-live="polite" className="flex items-center gap-2 text-slate-300">
+              <Users className="h-4 w-4 text-slate-400" />
               {selectedModels.length === 0 && <span className="text-slate-500">No models selected</span>}
               {selectedModels.length === 1 && (
                 <span className="text-amber-400 font-semibold">Select 1 more model from the left</span>
@@ -335,9 +475,10 @@ export default function Admin() {
             type="button"
             onClick={startMatch}
             disabled={selectedModels.length !== 2 || startingMatch}
-            className="w-full h-9 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow transition hover:bg-emerald-500 disabled:opacity-50"
+            className="flex w-full h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow transition hover:bg-emerald-500 disabled:opacity-50"
           >
-            {startingMatch ? 'Creating Match...' : 'Create Match'}
+            <Play className="h-3.5 w-3.5 fill-current" />
+            <span>{startingMatch ? 'Creating Match...' : 'Start Match'}</span>
           </button>
 
           {matchResult && (
@@ -349,14 +490,25 @@ export default function Admin() {
           {createdTokens && (
             <div className="space-y-3 pt-2 border-t border-[#242f42]">
               <div className="text-xs font-semibold text-slate-300">Bearer Tokens</div>
-              <TokenRow label="Player A (White Game 1)" value={createdTokens.white} copied={copiedToken === 'A'} onCopy={handleCopyA} />
-              <TokenRow label="Player B (Black Game 1)" value={createdTokens.black} copied={copiedToken === 'B'} onCopy={handleCopyB} />
+              <TokenRow
+                label="Player A (White Game 1)"
+                value={createdTokens.white}
+                copied={copiedToken === 'A'}
+                onCopy={handleCopyA}
+              />
+              <TokenRow
+                label="Player B (Black Game 1)"
+                value={createdTokens.black}
+                copied={copiedToken === 'B'}
+                onCopy={handleCopyB}
+              />
               <button
                 type="button"
                 onClick={openInArena}
-                className="w-full h-8 rounded-lg border border-[#2e3c54] bg-[#1c2536] text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+                className="flex w-full h-8 items-center justify-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#1c2536] text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
               >
-                Open in Arena →
+                <span>Open in Arena</span>
+                <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
