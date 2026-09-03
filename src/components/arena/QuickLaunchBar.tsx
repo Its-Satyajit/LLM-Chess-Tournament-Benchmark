@@ -1,0 +1,196 @@
+'use client'
+
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react'
+import { createMatch } from '../../lib/api'
+
+interface ModelOption {
+  name: string
+  provider: string
+}
+
+export interface QuickLaunchBarProps {
+  currentMatchId: string
+  onConnectMatch: (matchId: string) => void
+  onTokensReceived?: (tokens: { white: string; black: string }) => void
+  loading: boolean
+}
+
+export default function QuickLaunchBar({
+  currentMatchId,
+  onConnectMatch,
+  onTokensReceived,
+  loading,
+}: QuickLaunchBarProps) {
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [selectedWhite, setSelectedWhite] = useState<string>('')
+  const [selectedBlack, setSelectedBlack] = useState<string>('')
+  const [isLaunching, setIsLaunching] = useState(false)
+  const [manualId, setManualId] = useState('')
+  const [launchError, setLaunchError] = useState('')
+
+  // Fetch registered models on mount
+  useEffect(() => {
+    let active = true
+    fetch('/api/admin/models')
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((data: { models?: ModelOption[] }) => {
+        if (active && data.models && data.models.length > 0) {
+          setModels(data.models)
+          setSelectedWhite(data.models[0].name)
+          const second = data.models[1]?.name || data.models[0].name
+          setSelectedBlack(second)
+        }
+      })
+      .catch(() => {
+        // Fallback default mock models if none yet registered
+        if (active) {
+          const defaults: ModelOption[] = [
+            { name: 'gpt-4o', provider: 'openai' },
+            { name: 'claude-3-5-sonnet', provider: 'anthropic' },
+          ]
+          setModels(defaults)
+          setSelectedWhite('gpt-4o')
+          setSelectedBlack('claude-3-5-sonnet')
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const handleWhiteChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedWhite(e.target.value)
+  }, [])
+
+  const handleBlackChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedBlack(e.target.value)
+  }, [])
+
+  const handleManualIdChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setManualId(e.target.value)
+  }, [])
+
+  const handleQuickLaunch = useCallback(async () => {
+    const whiteModel = models.find((m) => m.name === selectedWhite) || { name: selectedWhite, provider: 'openai' }
+    const blackModel = models.find((m) => m.name === selectedBlack) || { name: selectedBlack, provider: 'anthropic' }
+
+    setIsLaunching(true)
+    setLaunchError('')
+    try {
+      const match = await createMatch(
+        { maxOutputTokens: 1000, name: whiteModel.name, provider: whiteModel.provider, temperature: 0.7, version: '1.0' },
+        { maxOutputTokens: 1000, name: blackModel.name, provider: blackModel.provider, temperature: 0.7, version: '1.0' },
+      )
+      onTokensReceived?.({ black: match.playerBToken, white: match.playerAToken })
+      onConnectMatch(match.matchId)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Launch failed'
+      setLaunchError(msg)
+    } finally {
+      setIsLaunching(false)
+    }
+  }, [models, selectedWhite, selectedBlack, onConnectMatch, onTokensReceived])
+
+  const handleManualConnect = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      if (manualId.trim()) {
+        onConnectMatch(manualId.trim())
+      }
+    },
+    [manualId, onConnectMatch],
+  )
+
+  return (
+    <div className="mb-4 rounded-xl border border-[#242f42] bg-[#161d2a] p-3 shadow-lg shadow-black/20">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Left: Quick Match Creator */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-500/20 text-xs">⚡</span>
+            <span>Quick Match:</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-bold text-slate-400">W:</span>
+            <select
+              value={selectedWhite}
+              onChange={handleWhiteChange}
+              className="h-8 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs font-medium text-slate-200 focus:border-emerald-500 focus:outline-none"
+              aria-label="White Player Model"
+            >
+              {models.map((m) => (
+                <option key={`w-${m.name}`} value={m.name}>
+                  {m.name} ({m.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <span className="text-xs font-bold text-slate-500">vs</span>
+
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-bold text-slate-400">B:</span>
+            <select
+              value={selectedBlack}
+              onChange={handleBlackChange}
+              className="h-8 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 text-xs font-medium text-slate-200 focus:border-emerald-500 focus:outline-none"
+              aria-label="Black Player Model"
+            >
+              {models.map((m) => (
+                <option key={`b-${m.name}`} value={m.name}>
+                  {m.name} ({m.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleQuickLaunch}
+            disabled={isLaunching || loading}
+            className="h-8 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
+          >
+            {isLaunching ? 'Launching...' : '1-Click Launch'}
+          </button>
+        </div>
+
+        {/* Right: Manual Match ID & Connect */}
+        <div className="flex items-center gap-2">
+          {currentMatchId && (
+            <span className="hidden xl:inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/60 px-2.5 py-1 text-[11px] font-mono text-slate-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span>{currentMatchId}</span>
+            </span>
+          )}
+          <form onSubmit={handleManualConnect} className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="e.g., MATCH-1787585865651-702F59"
+              value={manualId}
+              onChange={handleManualIdChange}
+              className="h-8 w-48 sm:w-60 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 font-mono text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+              aria-label="Match ID"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="h-8 rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+            >
+              Connect
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {launchError && (
+        <div className="mt-2 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs text-rose-400 border border-rose-500/20">
+          {launchError}
+        </div>
+      )}
+    </div>
+  )
+}

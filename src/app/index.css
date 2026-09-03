@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+:root {
+  --arena-bg: #0a0d12;
+  --arena-surface: #111620;
+  --arena-card: #161d2a;
+  --arena-card-hover: #1c2536;
+  --arena-border: #242f42;
+  --arena-border-strong: #334155;
+  --arena-text: #f1f5f9;
+  --arena-text-muted: #94a3b8;
+  --arena-accent: #10b981;
+  --arena-accent-hover: #059669;
+  --arena-accent-glow: rgba(16, 185, 129, 0.2);
+  --arena-walnut: #8b6b4a;
+  --arena-ivory: #ede0c8;
+}
+
+body {
+  background-color: var(--arena-bg);
+  color: var(--arena-text);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom tournament scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--arena-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--arena-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--arena-border-strong);
+}
+
+/* Pulse animation for live badge */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.live-indicator {
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+/* ---------- Chessboard ---------- */
+.chessboard {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+  border: 4px solid var(--arena-walnut);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+}
+
+.chessboard .sq {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.2rem, 4.5vw, 2.4rem);
+  line-height: 1;
+}
+
+.chessboard .sq.light {
+  background-color: var(--arena-ivory);
+}
+
+.chessboard .sq.dark {
+  background-color: var(--arena-walnut);
+}
+
+.chessboard .sq .piece-w {
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.6);
+}
+
+.chessboard .sq .piece-b {
+  color: #12100e;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.board-empty {
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 24px,
+      rgba(139, 107, 74, 0.05) 24px,
+      rgba(139, 107, 74, 0.05) 48px
+    ),
+    var(--arena-surface);
+  border: 2px dashed var(--arena-border);
+  border-radius: 0.75rem;
+  text-align: center;
+}
+
+/* Scoresheet / move list styling */
+.moves-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.5rem;
+}
+
+.move-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--arena-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.move-btn:hover {
+  background-color: var(--arena-card-hover);
+  border-color: var(--arena-border);
+}
+
+.move-btn.current {
+  background-color: var(--arena-accent);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 0 10px var(--arena-accent-glow);
+}
+
+.move-btn.future {
+  color: var(--arena-text-muted);
+}
