@@ -18,6 +18,7 @@ export default function Arena() {
     matchInfo,
     activeGameId,
     gameState,
+    lastMove,
     moves,
     status,
     loading,
@@ -88,7 +89,11 @@ export default function Arena() {
               />
 
               <div className="flex justify-center">
-                <ChessBoard fen={gameState.fen} />
+                <ChessBoard
+                  fen={gameState.fen}
+                  inCheck={gameState.isCheck}
+                  lastMove={lastMove}
+                />
               </div>
 
               <Plaque

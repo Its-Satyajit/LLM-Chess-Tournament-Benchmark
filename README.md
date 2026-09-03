@@ -49,7 +49,7 @@ The server will start at `http://localhost:3001` and the web UI at `http://local
 │                    BENCHMARK SERVER                          │
 │                    (Passive API)                             │
 ├─────────────────────────────────────────────────────────────┤
-│  ElysiaJS (Node.js) │  chess.js  │  SQLite + Drizzle        │
+│  ElysiaJS (Node.js) │  chess.js  │  Turso (libSQL) + Drizzle│
 └─────────────────────────────────────────────────────────────┘
                               │
                               │ WebSocket (real-time updates)
@@ -116,7 +116,7 @@ npm run format     # Format with dprint
 - **Package Manager**: nub
 - **Backend**: ElysiaJS (@elysiajs/node) + TypeScript
 - **Frontend**: React + Vite + Custom CSS
-- **Database**: SQLite + Drizzle ORM
+- **Database**: Turso (libSQL) + Drizzle ORM
 - **Chess Logic**: chess.js
 - **Testing**: Vitest + React Testing Library
 - **Linting**: Oxc + dprint

@@ -3,7 +3,9 @@ import { database } from '../services/database'
 
 const adminRoutes = new Elysia({ prefix: '/api/admin' })
   .get('/models', async () => {
+    console.log('[admin] GET /models')
     const loaded = await database.loadModels()
+    console.log('[admin] loaded', loaded.length)
     return {
       models: loaded.map((m) => ({
         id: m.id,
@@ -15,6 +17,7 @@ const adminRoutes = new Elysia({ prefix: '/api/admin' })
   .post(
     '/models',
     async ({ body }) => {
+      console.log('[admin] POST /models', body)
       const id = `MODEL-${Date.now()}`
       const model = {
         config: {
@@ -29,6 +32,7 @@ const adminRoutes = new Elysia({ prefix: '/api/admin' })
         provider: body.provider.trim(),
       }
       await database.addModel(model)
+      console.log('[admin] added', id)
       return { id, name: model.name, provider: model.provider }
     },
     {

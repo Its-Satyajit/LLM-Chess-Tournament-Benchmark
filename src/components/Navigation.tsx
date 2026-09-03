@@ -2,13 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Swords, Trophy, Settings, Radio } from 'lucide-react'
+import { Swords, Trophy, Settings, Radio, History as HistoryIcon } from 'lucide-react'
 
 export default function Navigation() {
   const pathname = usePathname()
 
   const links = [
     { href: '/', icon: Radio, label: 'Arena' },
+    { href: '/history', icon: HistoryIcon, label: 'History' },
     { href: '/dashboard', icon: Trophy, label: 'Leaderboard' },
     { href: '/admin', icon: Settings, label: 'Admin' },
   ]

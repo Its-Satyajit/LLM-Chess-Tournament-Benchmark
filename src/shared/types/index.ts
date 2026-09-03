@@ -158,6 +158,17 @@ export interface EventData {
   matchId?: string
   move?: string
   messageId?: string
+  // Per-move metrics (move + illegal_move events)
+  thinkTimeSeconds?: number
+  tokensUsed?: number
+  apiCalls?: number
+  moveNumber?: number
+  captured?: string
+  promotion?: string
+  isCapture?: boolean
+  isPromotion?: boolean
+  isCastle?: boolean
+  givesCheck?: boolean
   player?: string
   playerAId?: string
   playerBId?: string

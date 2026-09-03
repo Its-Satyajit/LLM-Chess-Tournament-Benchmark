@@ -96,7 +96,7 @@ POST /api/match/{matchId}/resign/{gameId}   irreversible
 
 ### Spectator data (no auth)
 GET /api/match/{matchId}/events    full event log
-GET /api/match/{matchId}/metrics   win rates, blunder rate, response times
+GET /api/match/{matchId}/metrics   win rates, blunder rate, response/think times, tokens, captures/checks
 GET /api/match/{matchId}/manifest  reproducibility manifest
 GET /api/ratings                   Glicko-2 leaderboard
 

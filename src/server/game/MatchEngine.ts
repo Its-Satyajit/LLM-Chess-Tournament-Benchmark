@@ -160,6 +160,14 @@ export class ClockManager {
     return this.running
   }
 
+  // Seconds elapsed since the current turn started (0 when clock idle or not this color's turn)
+  getTurnElapsedSeconds(color: 'white' | 'black'): number {
+    if (this.running && this.turnStartTime && this.currentTurn === color) {
+      return Math.max(0, (Date.now() - this.turnStartTime) / 1000)
+    }
+    return 0
+  }
+
   // Freeze clock at current position without adding increment
   pause(): void {
     if (this.turnStartTime && this.currentTurn) {
@@ -195,26 +203,25 @@ export class ClockManager {
 }
 
 // Match Engine
-export type EventCallback = (event: {
+export interface EngineEvent {
   matchId: string
   gameId: string
   eventType: string
   playerId: string
   data: EventData
   timestamp: Date
-}) => void
+  // Persisted per-event context (mirrors the events table columns)
+  gameMove: number | null
+  clockWhite: number | null
+  clockBlack: number | null
+}
+
+export type EventCallback = (event: EngineEvent) => void
 
 export class MatchEngine {
   private matches = new Map<string, Match>()
   private games = new Map<string, Game>()
-  private events: {
-    matchId: string
-    gameId: string
-    eventType: string
-    playerId: string
-    data: EventData
-    timestamp: Date
-  }[] = []
+  private events: EngineEvent[] = []
   private eventListeners: EventCallback[] = []
 
   onEvent(callback: EventCallback): void {
@@ -419,11 +426,25 @@ export class MatchEngine {
     if (result.accepted) {
       game.moveCount++
       game.moves.push(move)
-      
+
+      // Per-move metrics snapshot (clock is still running for the mover here —
+      // withClock ends the turn after makeMove returns)
+      const thinkTimeSeconds = game.clock.getTurnElapsedSeconds(color)
+
       // Log move event
       this.logEvent(matchId, gameId, 'move', playerId, {
+        apiCalls: game.apiCallsThisTurn[color],
+        captured: result.captured,
         fen: game.chessGame.getGameState().fen,
+        givesCheck: result.givesCheck,
+        isCapture: result.isCapture,
+        isCastle: result.isCastle,
+        isPromotion: result.isPromotion,
         move,
+        moveNumber: game.moveCount,
+        promotion: result.promotion,
+        thinkTimeSeconds,
+        tokensUsed: game.tokensThisMove[color],
       })
       
       // Clear draw offer cooldown if moves were made
@@ -439,8 +460,17 @@ export class MatchEngine {
       if (result.isGameOver) {
         this.completeGame(match, game, result.result || null)
       }
+    } else {
+      // Rejected chess move — record the illegal attempt for metrics
+      this.logEvent(matchId, gameId, 'illegal_move', playerId, {
+        detail: result.error || 'ILLEGAL_MOVE',
+        move,
+        moveNumber: game.moveCount + 1,
+        thinkTimeSeconds: game.clock.getTurnElapsedSeconds(color),
+        tokensUsed: game.tokensThisMove[color],
+      }, { gameMove: game.moveCount + 1 })
     }
-    
+
     return result
   }
 
@@ -763,11 +793,17 @@ export class MatchEngine {
     return { resigned: true }
   }
 
-  private logEvent(matchId: string, gameId: string, eventType: string, playerId: string, data: EventData): void {
-    const event = {
+  private logEvent(matchId: string, gameId: string, eventType: string, playerId: string, data: EventData, opts?: { gameMove?: number }): void {
+    // Snapshot per-event context so metrics survive persistence (events table
+    // columns game_move / clock_white / clock_black).
+    const game = this.games.get(gameId)
+    const event: EngineEvent = {
+      clockBlack: game ? game.clock.getBlackTime() : null,
+      clockWhite: game ? game.clock.getWhiteTime() : null,
       data,
       eventType,
       gameId,
+      gameMove: opts?.gameMove ?? (game ? game.moveCount : null),
       matchId,
       playerId,
       timestamp: new Date(),
@@ -782,6 +818,14 @@ export class MatchEngine {
     return this.events.filter(e => e.matchId === matchId)
   }
 
+  // Snapshot summary of every known match, ordered newest-first.
+  // Excludes private matches (player tokens are required to observe them).
+  listMatches(): Match[] {
+    return Array.from(this.matches.values())
+      .filter(m => !m.isPrivate)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
   // Methods for loading from database
   addMatch(match: Match): void {
     this.matches.set(match.id, match)
@@ -791,14 +835,7 @@ export class MatchEngine {
   }
 
   // Restore persisted events on startup so /events and metrics survive restarts
-  restoreEvents(events: Array<{
-    matchId: string
-    gameId: string
-    eventType: string
-    playerId: string
-    data: EventData
-    timestamp: Date
-  }>): void {
+  restoreEvents(events: EngineEvent[]): void {
     this.events.push(...events)
   }
 
@@ -806,14 +843,7 @@ export class MatchEngine {
     this.games.set(game.id, game)
   }
 
-  addEvent(event: {
-    matchId: string
-    gameId: string
-    eventType: string
-    playerId: string
-    data: EventData
-    timestamp: Date
-  }): void {
+  addEvent(event: EngineEvent): void {
     this.events.push(event)
   }
 
@@ -835,6 +865,15 @@ export class MatchEngine {
     blunderRate: number
     tacticalAccuracy: number
     gameResults: { white_win: number; black_win: number; draw: number }
+    // Per-move metrics (new)
+    avgThinkTimeSeconds: number
+    maxThinkTimeSeconds: number
+    avgTokensPerMove: number
+    totalTokensUsed: number
+    totalCaptures: number
+    totalChecks: number
+    totalPromotions: number
+    totalCastles: number
   } | null {
     const match = this.matches.get(matchId)
     if (!match) return null
@@ -880,21 +919,52 @@ export class MatchEngine {
     const tacticalAccuracy =
       tacticalMoves > 0 ? (tacticalMoves - tacticalBlunders) / tacticalMoves : 1
 
+    // Per-move metrics aggregated from enriched move events
+    let thinkTotal = 0
+    let thinkCount = 0
+    let maxThink = 0
+    let tokensTotal = 0
+    let captures = 0
+    let checks = 0
+    let promotions = 0
+    let castles = 0
+    for (const m of moves) {
+      const d = m.data
+      if (typeof d.thinkTimeSeconds === 'number' && d.thinkTimeSeconds >= 0) {
+        thinkTotal += d.thinkTimeSeconds
+        thinkCount++
+        if (d.thinkTimeSeconds > maxThink) maxThink = d.thinkTimeSeconds
+      }
+      if (typeof d.tokensUsed === 'number') tokensTotal += d.tokensUsed
+      if (d.isCapture) captures++
+      if (d.givesCheck) checks++
+      if (d.isPromotion) promotions++
+      if (d.isCastle) castles++
+    }
+
     return {
       avgMovesPerGame: moves.length / (completedGames.length || 1),
       avgResponseTime,
+      avgThinkTimeSeconds: thinkCount > 0 ? thinkTotal / thinkCount : 0,
+      avgTokensPerMove: moves.length > 0 ? tokensTotal / moves.length : 0,
       blackWinRate: results.black_win / total,
       blunderRate,
       drawRate: results.draw / total,
       gameResults: results,
       illegalMoveRate: totalAttempts > 0 ? illegalMoves.length / totalAttempts : 0,
+      maxThinkTimeSeconds: maxThink,
       tacticalAccuracy,
+      totalCaptures: captures,
+      totalCastles: castles,
+      totalChecks: checks,
       totalDrawOffers: drawOffers.length,
       totalIllegalMoves: illegalMoves.length,
       totalMessages: messages.length,
       totalMoves: moves.length,
+      totalPromotions: promotions,
       totalResigns: resigns.length,
       totalTimeouts: timeouts.length,
+      totalTokensUsed: tokensTotal,
       whiteWinRate: results.white_win / total,
     }
   }

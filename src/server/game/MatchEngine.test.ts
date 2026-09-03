@@ -314,4 +314,130 @@ describe('ClockManager', () => {
     // Should be ~600 - elapsed + 5
     expect(clock.getWhiteTime()).toBeGreaterThan(590)
   })
+
+  it('should report turn elapsed time while running', () => {
+    const clock = new ClockManager('10+5')
+    expect(clock.getTurnElapsedSeconds('white')).toBe(0)
+    clock.startTurn('white')
+    clock['turnStartTime'] = Date.now() - 12_000 // 12 seconds ago
+    expect(clock.getTurnElapsedSeconds('white')).toBeGreaterThanOrEqual(11)
+    expect(clock.getTurnElapsedSeconds('black')).toBe(0)
+    clock.endTurn('white')
+    expect(clock.getTurnElapsedSeconds('white')).toBe(0)
+  })
+})
+
+describe('per-move metrics', () => {
+  function setupMatch() {
+    const engine = new MatchEngine(),
+     match = engine.createMatch({
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: '1.0' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: '1.0' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    })
+    return { blackId: match.playerBId, engine, gameId: match.games[0].id, match, whiteId: match.playerAId }
+  }
+
+  it('should enrich move events with think time, tokens, clocks and move number', () => {
+    const { engine, match, gameId, whiteId } = setupMatch()
+
+    engine.trackTokens(match.id, gameId, whiteId, 150)
+    engine.startPlayerTurn(match.id, gameId, whiteId)
+    const game = match.games[0]
+    game.clock['turnStartTime'] = Date.now() - 10_000 // 10 seconds ago
+
+    const result = engine.makeMove(match.id, gameId, whiteId, 'e4')
+    expect(result.accepted).toBe(true)
+
+    const moveEvent = engine.getEvents(match.id).find(e => e.eventType === 'move')
+    expect(moveEvent).toBeDefined()
+    expect(moveEvent!.data.thinkTimeSeconds).toBeGreaterThanOrEqual(9)
+    expect(moveEvent!.data.tokensUsed).toBe(150)
+    expect(moveEvent!.data.apiCalls).toBeGreaterThanOrEqual(1)
+    expect(moveEvent!.data.moveNumber).toBe(1)
+    expect(moveEvent!.gameMove).toBe(1)
+    expect(moveEvent!.clockWhite).toEqual(expect.any(Number))
+    expect(moveEvent!.clockBlack).toEqual(expect.any(Number))
+  })
+
+  it('should flag captures and checks on move events', () => {
+    const { engine, match, gameId, whiteId, blackId } = setupMatch()
+
+    engine.makeMove(match.id, gameId, whiteId, 'e4')
+    engine.makeMove(match.id, gameId, blackId, 'd5')
+    const capture = engine.makeMove(match.id, gameId, whiteId, 'exd5')
+    expect(capture.accepted).toBe(true)
+
+    const events = engine.getEvents(match.id).filter(e => e.eventType === 'move')
+    const captureEvent = events[events.length - 1]
+    expect(captureEvent.data.isCapture).toBe(true)
+    expect(captureEvent.data.captured).toBe('p')
+
+    const metrics = engine.getMatchMetrics(match.id)
+    expect(metrics!.totalCaptures).toBe(1)
+  })
+
+  it('should log illegal_move events for rejected moves', () => {
+    const { engine, match, gameId, whiteId } = setupMatch()
+
+    const result = engine.makeMove(match.id, gameId, whiteId, 'e5')
+    expect(result.accepted).toBe(false)
+
+    const illegal = engine.getEvents(match.id).filter(e => e.eventType === 'illegal_move')
+    expect(illegal).toHaveLength(1)
+    expect(illegal[0].data.move).toBe('e5')
+    expect(illegal[0].gameMove).toBe(1)
+
+    const metrics = engine.getMatchMetrics(match.id)
+    expect(metrics!.totalIllegalMoves).toBe(1)
+    expect(metrics!.illegalMoveRate).toBeGreaterThan(0)
+  })
+
+  it('should aggregate think time and token metrics', () => {
+    const { engine, match, gameId, whiteId, blackId } = setupMatch()
+
+    engine.trackTokens(match.id, gameId, whiteId, 100)
+    engine.makeMove(match.id, gameId, whiteId, 'e4')
+    engine.trackTokens(match.id, gameId, blackId, 200)
+    engine.makeMove(match.id, gameId, blackId, 'e5')
+
+    const metrics = engine.getMatchMetrics(match.id)
+    expect(metrics!.totalMoves).toBe(2)
+    expect(metrics!.totalTokensUsed).toBe(300)
+    expect(metrics!.avgTokensPerMove).toBe(150)
+    expect(metrics!.avgThinkTimeSeconds).toBeGreaterThanOrEqual(0)
+    expect(metrics!.maxThinkTimeSeconds).toBeGreaterThanOrEqual(0)
+    expect(metrics!.totalChecks).toBe(0)
+    expect(metrics!.totalPromotions).toBe(0)
+    expect(metrics!.totalCastles).toBe(0)
+  })
+})
+
+describe('listMatches', () => {
+  function newMatch(engine: MatchEngine, extra: Partial<{ isPrivate: boolean; name: string }> = {}) {
+    return engine.createMatch({
+      boardMode: 'assisted',
+      isPrivate: extra.isPrivate,
+      playerAModel: { maxOutputTokens: 4096, name: extra.name ?? 'gpt-4o', provider: 'openai', temperature: 0.7, version: '1.0' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: '1.0' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    })
+  }
+
+  it('returns public matches newest-first and hides private ones', async () => {
+    const engine = new MatchEngine()
+    const first = newMatch(engine)
+    // Stagger createdAt so the order is deterministic (1ms resolution on Date.now)
+    await new Promise((r) => setTimeout(r, 15))
+    const second = newMatch(engine, { name: 'gemini-1.5-pro' })
+    await new Promise((r) => setTimeout(r, 15))
+    newMatch(engine, { isPrivate: true })
+
+    const list = engine.listMatches()
+    expect(list.map((m) => m.id)).toEqual([second.id, first.id])
+    expect(list.every((m) => !m.isPrivate)).toBe(true)
+  })
 })

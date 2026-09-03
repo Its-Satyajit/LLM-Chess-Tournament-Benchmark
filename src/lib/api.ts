@@ -44,6 +44,38 @@ export interface Rating {
   points: number
 }
 
+export interface HistoryGame {
+  id: string
+  gameNumber: number
+  status: 'pending' | 'active' | 'completed'
+  result: { winner: string; reason: string } | null
+  moveCount: number
+  whitePlayerId: string
+  blackPlayerId: string
+  startingPosition: 'standard' | 'chess960'
+}
+
+export interface HistoryMatch {
+  id: string
+  status: 'active' | 'completed'
+  createdAt: string
+  completedAt: string | null
+  currentGameIndex: number
+  timeControl: string
+  playerAId: string
+  playerBId: string
+  playerAModel: { name: string; provider: string }
+  playerBModel: { name: string; provider: string }
+  games: HistoryGame[]
+}
+
+export async function listMatches(): Promise<HistoryMatch[]> {
+  const res = await fetch('/api/match')
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = (await res.json()) as { matches?: HistoryMatch[] }
+  return data.matches ?? []
+}
+
 export async function createMatch(
   playerAModel: ModelConfig,
   playerBModel: ModelConfig,
@@ -121,8 +153,9 @@ export async function getGameState(matchId: string, gameId: string): Promise<Gam
 }
 
 export async function getRatings(): Promise<{ ratings: Rating[] }> {
-  const { data, error } = await api.api.ratings.get()
-
+  console.log('[getRatings] fetching')
+  const { data, error, status } = await api.api.ratings.get()
+  console.log('[getRatings] data', data, 'error', error, 'status', status)
   if (error || !data || !('ratings' in data)) {
     throw new Error('Failed to fetch ratings')
   }

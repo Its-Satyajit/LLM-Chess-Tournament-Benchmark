@@ -1,13 +1,13 @@
 import { drizzle } from 'drizzle-orm/libsql'
-import { createClient } from '@libsql/client'
-import { mkdirSync } from 'fs'
-import { dirname, resolve } from 'path'
-import { fileURLToPath } from 'url'
+import { createClient, type Client } from '@libsql/client'
 import * as schema from './schema'
+import { resolve } from 'path'
+import { dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Try loading environment from root .env if not yet loaded
+// Ensure .env is loaded before reading process.env (covers `nub server.ts` where Next hasn't loaded it yet)
 if (process.loadEnvFile) {
   try {
     process.loadEnvFile(resolve(process.cwd(), '.env'))
@@ -16,32 +16,80 @@ if (process.loadEnvFile) {
   }
 }
 
-function getClientConfig() {
-  const rawUrl = process.env.DATABASE_URL || resolve(process.cwd(), 'data/db.sqlite')
+function getClientConfig(): { url: string; authToken?: string } {
+  // Test isolation: never hit Turso from vitest — `clearAll()` would wipe production.
+  const nodeEnv = process.env.NODE_ENV
+  console.log('[db] getClientConfig NODE_ENV', nodeEnv, 'DATABASE_URL', process.env.DATABASE_URL?.slice(0, 40))
+  if (nodeEnv === 'test') {
+    console.log('[db] using test file')
+    return { url: 'file:./data/test-db.sqlite' }
+  }
+
+  const rawUrl = process.env.DATABASE_URL
+  console.log('[db] rawUrl', rawUrl?.slice(0, 50))
+  if (!rawUrl || rawUrl.trim() === '') {
+    throw new Error(
+      'DATABASE_URL is required (Turso-only mode). Set DATABASE_URL=libsql://... and DATABASE_AUTH_TOKEN in .env',
+    )
+  }
+
+  const url = rawUrl.trim()
+  const isTurso =
+    url.startsWith('libsql://') ||
+    url.startsWith('https://') ||
+    url.startsWith('wss://') ||
+    url.startsWith('http://')
+
+  if (!isTurso) {
+    // Reject local file paths in non-test — Turso only
+    if (process.env.NODE_ENV === 'test' && url.startsWith('file:')) {
+      const authToken =
+        process.env.DATABASE_AUTH_TOKEN ||
+        process.env.TURSO_AUTH_TOKEN ||
+        process.env.LIBSQL_AUTH_TOKEN
+      return { url, authToken: authToken || undefined }
+    }
+    throw new Error(
+      `DATABASE_URL must be a Turso/libSQL URL (libsql:// or https://), got: ${url}. Local file DB is no longer supported — only Turso.`,
+    )
+  }
+
   const authToken =
     process.env.DATABASE_AUTH_TOKEN ||
     process.env.TURSO_AUTH_TOKEN ||
     process.env.LIBSQL_AUTH_TOKEN
 
-  let url = rawUrl
-  // If it's a local filesystem path without protocol, prefix with file:
-  if (
-    !url.startsWith('libsql://') &&
-    !url.startsWith('http://') &&
-    !url.startsWith('https://') &&
-    !url.startsWith('file:')
-  ) {
-    const absPath = resolve(/*turbopackIgnore: true*/ process.cwd(), url)
-    mkdirSync(dirname(absPath), { recursive: true })
-    url = `file:${absPath}`
+  if (!authToken) {
+    throw new Error(
+      'DATABASE_AUTH_TOKEN is required for Turso (libsql://) URLs. Set DATABASE_AUTH_TOKEN in .env',
+    )
   }
 
-  return { url, authToken: authToken || undefined }
+  return { url, authToken }
 }
 
-const clientConfig = getClientConfig()
-const client = createClient(clientConfig)
-export const db = drizzle(client, { schema })
+// Global singleton for Next.js HMR / route-handler parity — client + drizzle must survive hot reloads
+const globalForTurso = globalThis as unknown as {
+  __turso_client__?: Client
+  __turso_drizzle__?: ReturnType<typeof drizzle>
+}
+
+function getClient(): Client {
+  if (!globalForTurso.__turso_client__) {
+    globalForTurso.__turso_client__ = createClient(getClientConfig())
+  }
+  return globalForTurso.__turso_client__
+}
+
+function getDrizzle() {
+  if (!globalForTurso.__turso_drizzle__) {
+    globalForTurso.__turso_drizzle__ = drizzle(getClient(), { schema })
+  }
+  return globalForTurso.__turso_drizzle__
+}
+
+export const client = getClient()
+export const db = getDrizzle()
 
 // Create tables and run lightweight migrations
 export async function initializeDatabase(): Promise<void> {
