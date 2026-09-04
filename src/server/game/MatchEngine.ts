@@ -389,10 +389,6 @@ export class MatchEngine {
     }
     if (game.apiCallsThisGame[color] >= LIMITS.MAX_API_CALLS_PER_GAME) {
       this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
-      // Forfeit the game
-      // SAFETY: type assertion is validated by upstream schema/parsing
-      const forfeitResult = { reason: 'api_limit' as const, winner: color === 'white' ? 'black' as const : 'white' as const }
-      this.completeGame(match, game, forfeitResult)
       return { accepted: false, error: 'API_LIMIT' }
     }
     
@@ -597,10 +593,6 @@ export class MatchEngine {
     }
     if (game.apiCallsThisGame[color] > LIMITS.MAX_API_CALLS_PER_GAME) {
       this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
-      const match = this.matches.get(matchId)
-      if (match) {
-        this.completeGame(match, game, { reason: 'api_limit', winner: color === 'white' ? 'black' : 'white' })
-      }
       return false
     }
     return true
@@ -930,12 +922,12 @@ export class MatchEngine {
     let castles = 0
     for (const m of moves) {
       const d = m.data
-      if (typeof d.thinkTimeSeconds === 'number' && d.thinkTimeSeconds >= 0) {
+      if (d.thinkTimeSeconds !== undefined && d.thinkTimeSeconds >= 0) {
         thinkTotal += d.thinkTimeSeconds
         thinkCount++
         if (d.thinkTimeSeconds > maxThink) maxThink = d.thinkTimeSeconds
       }
-      if (typeof d.tokensUsed === 'number') tokensTotal += d.tokensUsed
+      if (d.tokensUsed !== undefined) tokensTotal += d.tokensUsed
       if (d.isCapture) captures++
       if (d.givesCheck) checks++
       if (d.isPromotion) promotions++

@@ -18,6 +18,7 @@ import {
   type PlyReview,
 } from '../lib/gameReview/coordinator'
 import { MOVE_CLASSIFICATIONS } from '../lib/gameReview/metrics'
+import { useGameReviewQuery, saveGameReviewToDb, type CachedReviewResponse } from '../lib/queries'
 import { ArrowLeft, Film, Shield, SkipBack, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
@@ -141,6 +142,40 @@ function MoveButton({
   )
 }
 
+function parseCachedReview(data: CachedReviewResponse | null | undefined): GameReviewReport | null {
+  if (!data) return null
+  if (data.white && data.black) {
+    return {
+      analyzedAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : String(data.createdAt),
+      black: data.black,
+      depth: data.depth,
+      gameId: data.gameId,
+      matchId: data.matchId,
+      plies: data.plies,
+      white: data.white,
+    }
+  }
+  return {
+    analyzedAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : String(data.createdAt),
+    black: {
+      acpl: 0,
+      accuracy: data.blackAccuracy,
+      classificationCounts: data.classificationCounts.black,
+      estimatedRating: data.blackRating ?? 1500,
+    },
+    depth: data.depth,
+    gameId: data.gameId,
+    matchId: data.matchId,
+    plies: data.plies,
+    white: {
+      acpl: 0,
+      accuracy: data.whiteAccuracy,
+      classificationCounts: data.classificationCounts.white,
+      estimatedRating: data.whiteRating ?? 1500,
+    },
+  }
+}
+
 export default function Replay({ matchId: propMatchId, gameId: propGameId }: ReplayProps) {
   const routeParams = useParams()
   // SAFETY: route params are strings populated by Next.js router
@@ -170,6 +205,12 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
   const [reviewProgress, setReviewProgress] = useState<ReviewProgress | null>(null)
   const [reviewMode, setReviewMode] = useState<ReviewMode>('tournament')
   const [reviewDepth, setReviewDepth] = useState<number>(10)
+
+  // Query database for pre-evaluated review
+  const { data: cachedReviewData } = useGameReviewQuery(gameId ?? '')
+  const activeReviewReport = useMemo(() => {
+    return reviewReport ?? parseCachedReview(cachedReviewData)
+  }, [reviewReport, cachedReviewData])
 
   const setCurrentMove = useCallback((val: number | MoveIndexFn) => {
     dispatch({ moveIndex: val, type: 'SET_CURRENT_MOVE' })
@@ -280,19 +321,19 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
 
   // Current ply review evaluation for EvalBar
   const currentPlyReview = useMemo(() => {
-    if (!reviewReport || currentMove === 0) return null
-    return reviewReport.plies.find((p) => p.ply === currentMove) ?? null
-  }, [reviewReport, currentMove])
+    if (!activeReviewReport || currentMove === 0) return null
+    return activeReviewReport.plies.find((p) => p.ply === currentMove) ?? null
+  }, [activeReviewReport, currentMove])
 
   // Map plies by ply number for quick scoresheet lookup
   const plyReviewsByPly = useMemo(() => {
-    if (!reviewReport) return new Map<number, PlyReview>()
+    if (!activeReviewReport) return new Map<number, PlyReview>()
     const map = new Map<number, PlyReview>()
-    for (const ply of reviewReport.plies) {
+    for (const ply of activeReviewReport.plies) {
       map.set(ply.ply, ply)
     }
     return map
-  }, [reviewReport])
+  }, [activeReviewReport])
 
   // Start Stockfish review handler
   const handleStartReview = useCallback(async () => {
@@ -313,6 +354,7 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
       })
       client.terminate()
       setReviewReport(report)
+      void saveGameReviewToDb(gameId, report)
     } catch (err) {
       console.error('Stockfish game review error:', err)
     } finally {
@@ -473,9 +515,9 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
           </div>
 
           {/* Advantage Timeline Graph */}
-          {reviewReport && reviewReport.plies.length > 0 && (
+          {activeReviewReport && activeReviewReport.plies.length > 0 && (
             <AdvantageGraph
-              plies={reviewReport.plies}
+              plies={activeReviewReport.plies}
               currentPly={currentMove}
               onSelectPly={handleSelectPly}
             />
@@ -486,7 +528,7 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
         <div className="lg:col-span-6 xl:col-span-7 space-y-3">
           {/* Stockfish Game Review Card */}
           <GameReviewCard
-            report={reviewReport}
+            report={activeReviewReport}
             isAnalyzing={isAnalyzing}
             progress={reviewProgress}
             onStartReview={handleStartReview}

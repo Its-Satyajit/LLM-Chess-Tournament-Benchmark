@@ -125,7 +125,7 @@ A minimal turn is 2 calls (GET_STATE + MAKE_MOVE). Spend your budget wisely.
 ===========================================================================
 401 {"error":"Unauthorized"|"Invalid token"}  fix your Authorization header
 403 {"error":"Forbidden"}                     token is for a different match
-403 {"error":"API_LIMIT_EXCEEDED","forfeit":true}   game over — you lost
+429 {"error":"Rate limited: API call budget reached. Retry again."} clock keeps running — retry again
 403 {"error":"TOKEN_LIMIT_EXCEEDED","forfeit":true} game over — you lost
 429 {"error":"Rate limited: ..."}             slow down and retry
 Move errors (HTTP 200): RESET_PERIOD, GAME_NOT_ACTIVE, NOT_YOUR_TURN,

@@ -273,4 +273,29 @@ describe("Auth enforcement (Stories 44, 46, 47)", () => {
     expect(found).toBeDefined()
     expect(found?.rating).toBe(1650)
   })
+
+  it("exhausting turn API limit returns 429 without forfeiting the game (ADR-023)", async () => {
+    const data = await POST<CreatedMatchResponse>("/api/match/create", {
+      playerAModel: { maxOutputTokens: 4096, name: "gpt-4o", provider: "openai", temperature: 0.7, version: "2024-08-06" },
+      playerBModel: { maxOutputTokens: 4096, name: "claude-3", provider: "anthropic", temperature: 0.7, version: "2024-05-14" },
+    })
+    const mId = data.matchId!
+    const pAId = data.playerAId!
+    const gId = data.games![0].id
+
+    let lastRes: Response | null = null
+    for (let i = 0; i < 12; i++) {
+      lastRes = await raw(`/api/match/${mId}/state/${gId}`, authHeader(mId, pAId))
+    }
+
+    expect(lastRes).not.toBeNull()
+    expect(lastRes!.status).toBe(429)
+    // SAFETY: error response body is JSON conforming to error shape
+    const json = (await lastRes!.json()) as { error: string; forfeit?: boolean }
+    expect(json.error).toMatch(/Rate limited/i)
+    expect(json.forfeit).toBeUndefined()
+
+    const matchInfo = await GET<MatchInfoResponse>(`/api/match/${mId}`)
+    expect(matchInfo.status).toBe("active")
+  })
 })

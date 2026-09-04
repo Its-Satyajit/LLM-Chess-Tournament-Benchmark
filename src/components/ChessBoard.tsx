@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { ChessPiece, type PieceLetter } from './ChessPieces'
 
 interface ChessBoardProps {
   fen: string
@@ -10,23 +11,6 @@ interface ChessBoardProps {
   highlightedSquares?: string[]
 }
 
-const PIECE_UNICODE = {
-  B: '♗',
-  K: '♔',
-  N: '♘',
-  P: '♙',
-  Q: '♕',
-  R: '♖',
-  b: '♝',
-  k: '♚',
-  n: '♞',
-  p: '♟',
-  q: '♛',
-  r: '♜',
-} as const
-
-type PieceKey = keyof typeof PIECE_UNICODE
-
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const
 
 // Convert algebraic square (e.g. "e4") to {row, col} where row=0 is rank 8
@@ -34,6 +18,7 @@ function squareToCoords(square: string): { row: number; col: number } | null {
   if (square.length !== 2) return null
   const file = square[0]
   const rank = square[1]
+  // SAFETY: file is a single-character string from 2-character algebraic square notation
   const col = FILES.indexOf(file as (typeof FILES)[number])
   const row = 8 - Number.parseInt(rank, 10)
   if (col < 0 || Number.isNaN(row) || row < 0 || row > 7) return null
@@ -104,8 +89,6 @@ export default function ChessBoard({
       {board.map((row, rowIndex) =>
         row.map((piece, colIndex) => {
           const isLight = (rowIndex + colIndex) % 2 === 0
-          // SAFETY: piece is a FEN piece letter, always a key of PIECE_UNICODE
-          const glyph = piece ? PIECE_UNICODE[piece as PieceKey] : null
           const isWhite = piece !== null && piece === piece.toUpperCase()
           const showRank = colIndex === 0
           const showFile = rowIndex === 7
@@ -148,12 +131,16 @@ export default function ChessBoard({
                 </span>
               )}
 
-              {/* Piece glyph */}
-              {glyph && (
+              {/* Piece graphic */}
+              {piece && (
                 <span
-                  className={`select-none transition-transform duration-100 ${isWhite ? 'piece-w' : 'piece-b'}`}
+                  className={`select-none flex items-center justify-center w-full h-full transition-transform duration-100 ${isWhite ? 'piece-w' : 'piece-b'}`}
                 >
-                  {glyph}
+                  <ChessPiece
+                    // SAFETY: piece is a FEN piece character [K,Q,R,B,N,P,k,q,r,b,n,p]
+                    piece={piece as PieceLetter}
+                    className="w-[82%] h-[82%] drop-shadow-sm"
+                  />
                 </span>
               )}
 

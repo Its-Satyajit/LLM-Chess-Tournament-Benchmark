@@ -112,3 +112,148 @@ export function useCreateMatch() {
     },
   })
 }
+
+export interface ModelBenchmarkData {
+  model: string
+  provider: string
+  rating: number
+  rd: number
+  gamesPlayed: number
+  wins: number
+  draws: number
+  losses: number
+  points: number
+  winRate: number
+  avgAccuracy: number | null
+  blunderRate: number
+  avgThinkTimeSeconds: number
+  avgTokensPerMove: number
+  totalTokensUsed: number
+  evaluatedGamesCount: number
+  classifications: {
+    brilliant: number
+    best: number
+    excellent: number
+    good: number
+    inaccuracy: number
+    mistake: number
+    miss: number
+    blunder: number
+  }
+}
+
+export interface BenchmarkMetricsResponse {
+  models: ModelBenchmarkData[]
+  totalMatches: number
+  totalGames: number
+  evaluatedGames: number
+  lastUpdated: string | Date
+}
+
+export function useBenchmarkMetrics() {
+  return useQuery({
+    queryKey: ['benchmarkMetrics'],
+    queryFn: async (): Promise<BenchmarkMetricsResponse> => {
+      const res = await fetch('/api/benchmark')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // SAFETY: /api/benchmark returns JSON shape matching BenchmarkMetricsResponse
+      return (await res.json()) as BenchmarkMetricsResponse
+    },
+    staleTime: 10_000,
+  })
+}
+
+import type { PlyReview, PlayerReviewSummary } from './gameReview/coordinator'
+import type { MoveClassificationType } from './gameReview/metrics'
+
+export interface CachedReviewResponse {
+  id: string
+  gameId: string
+  matchId: string
+  depth: number
+  whiteAccuracy: number
+  blackAccuracy: number
+  whiteRating: number | null
+  blackRating: number | null
+  classificationCounts: {
+    white: Record<MoveClassificationType, number>
+    black: Record<MoveClassificationType, number>
+  }
+  plies: PlyReview[]
+  createdAt: string | Date
+  white?: PlayerReviewSummary
+  black?: PlayerReviewSummary
+}
+
+export function useGameReviewQuery(gameId: string) {
+  return useQuery<CachedReviewResponse | null>({
+    queryKey: ['gameReview', gameId],
+    queryFn: async () => {
+      if (!gameId.trim()) return null
+      const res = await fetch(`/api/game/${encodeURIComponent(gameId)}/review`)
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // SAFETY: /api/game/:gameId/review returns cached review JSON matching CachedReviewResponse
+      return (await res.json()) as CachedReviewResponse
+    },
+    enabled: Boolean(gameId.trim()),
+    staleTime: 60_000,
+  })
+}
+
+export interface ReviewPayloadLike {
+  id?: string
+  matchId?: string
+  depth?: number
+  whiteAccuracy?: number
+  blackAccuracy?: number
+  whiteRating?: number | null
+  blackRating?: number | null
+  classificationCounts?: {
+    white: Record<string, number>
+    black: Record<string, number>
+  }
+  plies?: unknown[]
+  white?: {
+    accuracy: number
+    estimatedRating?: number
+    classificationCounts?: Record<string, number>
+  }
+  black?: {
+    accuracy: number
+    estimatedRating?: number
+    classificationCounts?: Record<string, number>
+  }
+}
+
+export async function saveGameReviewToDb(gameId: string, review: ReviewPayloadLike): Promise<void> {
+  try {
+    const payload = {
+      blackAccuracy: Number.isFinite(review.blackAccuracy) ? review.blackAccuracy : (review.black?.accuracy ?? 0),
+      blackRating: Number.isFinite(review.blackRating) ? review.blackRating : (review.black?.estimatedRating ?? null),
+      classificationCounts: review.classificationCounts ?? {
+        black: review.black?.classificationCounts ?? {},
+        white: review.white?.classificationCounts ?? {},
+      },
+      depth: Number.isFinite(review.depth) ? review.depth : 14,
+      id: review.id ?? `rev-${gameId}`,
+      matchId: review.matchId ?? '',
+      plies: review.plies ?? [],
+      whiteAccuracy: Number.isFinite(review.whiteAccuracy) ? review.whiteAccuracy : (review.white?.accuracy ?? 0),
+      whiteRating: Number.isFinite(review.whiteRating) ? review.whiteRating : (review.white?.estimatedRating ?? null),
+    }
+
+    const res = await fetch(`/api/game/${encodeURIComponent(gameId)}/review`, {
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+    if (!res.ok) {
+      console.warn(`[saveGameReviewToDb] Failed to save review: HTTP ${res.status}`)
+    }
+  } catch (err) {
+    console.warn('[saveGameReviewToDb] Network error saving review:', err)
+  }
+}
+
+

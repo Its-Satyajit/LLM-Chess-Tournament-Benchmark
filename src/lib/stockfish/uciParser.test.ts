@@ -51,10 +51,51 @@ describe('uciParser', () => {
       })
     })
 
-    it('returns null for non-info lines', () => {
+    it('parses negative mate score', () => {
+      const line = 'info depth 8 score mate -2 nodes 3200 pv f7f8q e8f8'
+      const parsed = parseUciInfoLine(line)
+
+      expect(parsed).toEqual({
+        depth: 8,
+        nodes: 3200,
+        pv: ['f7f8q', 'e8f8'],
+        score: {
+          type: 'mate',
+          value: -2,
+        },
+        time: undefined,
+      })
+    })
+
+    it('parses info line with zero centipawns and no pv', () => {
+      const line = 'info depth 20 score cp 0 nodes 99999 time 500'
+      const parsed = parseUciInfoLine(line)
+
+      expect(parsed).toEqual({
+        depth: 20,
+        nodes: 99999,
+        pv: undefined,
+        score: {
+          type: 'cp',
+          value: 0,
+        },
+        time: 500,
+      })
+    })
+
+    it('handles malformed or truncated info lines gracefully', () => {
+      expect(parseUciInfoLine('info')).toBeNull()
+      expect(parseUciInfoLine('info depth')).toEqual({ depth: 0 })
+      expect(parseUciInfoLine('info score')).toEqual({ depth: 0 })
+      expect(parseUciInfoLine('info score invalid 10')).toEqual({ depth: 0 })
+    })
+
+    it('returns null for non-info lines and empty strings', () => {
       expect(parseUciInfoLine('uciok')).toBeNull()
       expect(parseUciInfoLine('readyok')).toBeNull()
       expect(parseUciInfoLine('Stockfish 10')).toBeNull()
+      expect(parseUciInfoLine('')).toBeNull()
+      expect(parseUciInfoLine('   ')).toBeNull()
     })
   })
 
@@ -73,16 +114,36 @@ describe('uciParser', () => {
       })
     })
 
+    it('parses special bestmove tokens like (none) and null moves', () => {
+      expect(parseBestMoveLine('bestmove (none)')).toEqual({
+        bestMove: '(none)',
+        ponder: undefined,
+      })
+      expect(parseBestMoveLine('bestmove 0000')).toEqual({
+        bestMove: '0000',
+        ponder: undefined,
+      })
+    })
+
+    it('handles extra whitespace around bestmove line', () => {
+      expect(parseBestMoveLine('   bestmove   d2d4   ponder   d7d5   ')).toEqual({
+        bestMove: 'd2d4',
+        ponder: 'd7d5',
+      })
+    })
+
     it('returns null for non-bestmove lines', () => {
       expect(parseBestMoveLine('info depth 10 score cp 20')).toBeNull()
       expect(parseBestMoveLine('')).toBeNull()
+      expect(parseBestMoveLine('bestmove')).toBeNull()
     })
   })
 
   describe('scoreToCentipawns', () => {
-    it('converts cp score directly', () => {
+    it('converts cp score directly including zero', () => {
       expect(scoreToCentipawns({ type: 'cp', value: 75 })).toBe(75)
       expect(scoreToCentipawns({ type: 'cp', value: -120 })).toBe(-120)
+      expect(scoreToCentipawns({ type: 'cp', value: 0 })).toBe(0)
     })
 
     it('converts mate score to bounded centipawn equivalent', () => {
@@ -90,8 +151,17 @@ describe('uciParser', () => {
       expect(scoreToCentipawns({ type: 'mate', value: 1 })).toBe(10000)
       // Mate in -1 should be overwhelmingly losing (-10000)
       expect(scoreToCentipawns({ type: 'mate', value: -1 })).toBe(-10000)
+      // Mate in 2 and 3
+      expect(scoreToCentipawns({ type: 'mate', value: 2 })).toBe(9900)
+      expect(scoreToCentipawns({ type: 'mate', value: 3 })).toBe(9800)
       // Mate in 5 should be slightly less than mate in 1
       expect(scoreToCentipawns({ type: 'mate', value: 5 })).toBe(9600)
+      // Negative mate in -2 and -5
+      expect(scoreToCentipawns({ type: 'mate', value: -2 })).toBe(-9900)
+      expect(scoreToCentipawns({ type: 'mate', value: -5 })).toBe(-9600)
+      // Distant mate score clamps at minimum magnitude 1000
+      expect(scoreToCentipawns({ type: 'mate', value: 150 })).toBe(1000)
+      expect(scoreToCentipawns({ type: 'mate', value: -150 })).toBe(-1000)
     })
   })
 })

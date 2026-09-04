@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { events, games, matches, ratings, tournamentEntries, tournaments } from './schema'
+import { events, gameReviews, games, matches, ratings, tournamentEntries, tournaments } from './schema'
 
 describe('Database Schema', () => {
   describe('matches table', () => {
@@ -12,6 +12,7 @@ describe('Database Schema', () => {
       expect(columns).toContain('timeControl')
       expect(columns).toContain('startingPosition')
       expect(columns).toContain('boardMode')
+      expect(columns).toContain('metrics')
       expect(columns).toContain('createdAt')
     })
   })
@@ -79,6 +80,23 @@ describe('Database Schema', () => {
       expect(columns).toContain('draws')
       expect(columns).toContain('losses')
       expect(columns).toContain('points')
+    })
+  })
+
+  describe('gameReviews table', () => {
+    it('should have correct column names', () => {
+      const columns = Object.keys(gameReviews)
+      expect(columns).toContain('id')
+      expect(columns).toContain('gameId')
+      expect(columns).toContain('matchId')
+      expect(columns).toContain('depth')
+      expect(columns).toContain('whiteAccuracy')
+      expect(columns).toContain('blackAccuracy')
+      expect(columns).toContain('whiteRating')
+      expect(columns).toContain('blackRating')
+      expect(columns).toContain('classificationCounts')
+      expect(columns).toContain('plies')
+      expect(columns).toContain('createdAt')
     })
   })
 })
