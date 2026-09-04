@@ -172,6 +172,24 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
     }),
   })
 
+  // --- PUBLIC: Mint valid player token(s) for a match from its DB per-match
+  // secret. Used by the Arena/Admin UIs so the Bearer token injected into an
+  // LLM prompt is always the server-issued token, never an externally-minted
+  // one that fails verification.
+  .get('/:matchId/tokens', async ({ params }) => {
+    await database.ensureMatchLoaded(params.matchId)
+    const match = engine.getMatch(params.matchId)
+    if (!match) {
+      return status(404, { error: 'Match not found' })
+    }
+    return {
+      playerAId: match.playerAId,
+      playerAToken: generatePlayerToken(match.playerAId, match.id, match.secret ?? undefined),
+      playerBId: match.playerBId,
+      playerBToken: generatePlayerToken(match.playerBId, match.id, match.secret ?? undefined),
+    }
+  })
+
   // --- PUBLIC: Get match info (spectators) ---
   .get('/:matchId', async ({ params }) => {
     await database.ensureMatchLoaded(params.matchId)
