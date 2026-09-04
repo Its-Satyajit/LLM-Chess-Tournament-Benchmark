@@ -260,4 +260,43 @@ describe('DatabaseService', () => {
     const benchmark = await db.getBenchmarkMetrics()
     expect(benchmark.models.some(m => m.model === 'temp-experimental-ai')).toBe(true)
   })
+
+  it('ensureMatchLoaded lazily recovers a persisted match into a fresh (cold-start) engine', async () => {
+    const config: MatchConfig = {
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: 'latest' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: 'latest' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    }
+
+    // Match created, played, and persisted by one instance's engine
+    const match = engine.createMatch(config)
+    const game = match.games[0]
+    engine.makeMove(match.id, game.id, match.playerAId, 'e4')
+    await db.saveMatch(match)
+    await db.saveNewEvents(match.id)
+
+    // A brand-new instance with an empty in-memory engine (serverless cold start)
+    const freshDb = new DatabaseService()
+    const freshEngine = freshDb.getEngine()
+    expect(freshEngine.getMatch(match.id)).toBeUndefined()
+
+    // On-demand load recovers the match from SQLite and reconstructs board state
+    const loaded = await freshDb.ensureMatchLoaded(match.id)
+    expect(loaded?.id).toBe(match.id)
+    expect(freshEngine.getMatch(match.id)).toBeDefined()
+    expect(freshEngine.getMatch(match.id)?.games[0].moveCount).toBe(1)
+
+    // Board state is rebuilt from persisted move events: black to move after 1.e4
+    const state = freshEngine.getGameState(match.id, game.id)
+    expect(state.turn).toBe('black')
+    expect(state.history).toContain('e4')
+    expect(state.legalMoves).toContain('e5')
+
+    // Idempotent: a second load returns the already-loaded match without reloading
+    const again = await freshDb.ensureMatchLoaded(match.id)
+    expect(again?.id).toBe(match.id)
+    expect(freshEngine.getEvents(match.id).filter(e => e.eventType === 'move').length).toBe(1)
+  })
 })

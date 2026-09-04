@@ -32,7 +32,16 @@ export const apiUrl = globalThis.window !== undefined
   : 'http://localhost:3000'
 
 export function useArenaMatch() {
-  const [matchId, setMatchId] = useState(() => (globalThis.window !== undefined ? localStorage.getItem(LAST_MATCH_KEY) ?? '' : ''))
+  const [matchId, setMatchId] = useState('')
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LAST_MATCH_KEY)
+      if (saved) {
+        setMatchId(saved)
+      }
+    }
+  }, [])
   const [activeMatchId, setActiveMatchId] = useState('')
   const [matchInfo, setMatchInfo] = useState<Match | null>(null)
   const [activeGameId, setActiveGameId] = useState('')

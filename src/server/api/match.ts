@@ -170,7 +170,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- PUBLIC: Get match info (spectators) ---
-  .get('/:matchId', ({ params }) => {
+  .get('/:matchId', async ({ params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const match = engine.getMatch(params.matchId)
     if (!match) {
       return status(404, { error: 'Match not found' })
@@ -197,7 +198,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED (optional): Get game state (player-specific clock per ADR-005) ---
-  .get('/:matchId/state/:gameId', ({ headers, params }) => {
+  .get('/:matchId/state/:gameId', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const auth = authenticateRequest(headers, params.matchId)
     const playerId = auth.ok ? auth.playerId : undefined
 
@@ -223,7 +225,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED: Make move ---
-  .post('/:matchId/move/:gameId', ({ body, headers, params }) => {
+  .post('/:matchId/move/:gameId', async ({ body, headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'move')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -267,7 +270,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED: Send message ---
-  .post('/:matchId/message/:gameId', ({ body, headers, params }) => {
+  .post('/:matchId/message/:gameId', async ({ body, headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'msg')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -290,7 +294,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED: Get messages ---
-  .get('/:matchId/messages/:gameId', ({ headers, params }) => {
+  .get('/:matchId/messages/:gameId', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const auth = authenticateRequest(headers, params.matchId)
     if (!auth.ok) {
       return status(auth.httpStatus, { error: auth.error })
@@ -299,7 +304,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED: Draw offer / accept / reject ---
-  .post('/:matchId/draw/:gameId', ({ headers, params }) => {
+  .post('/:matchId/draw/:gameId', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'draw')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -316,7 +322,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
     return result
   })
 
-  .post('/:matchId/draw/:gameId/accept', ({ headers, params }) => {
+  .post('/:matchId/draw/:gameId/accept', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'draw')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -333,7 +340,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
     return result
   })
 
-  .post('/:matchId/draw/:gameId/reject', ({ headers, params }) => {
+  .post('/:matchId/draw/:gameId/reject', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'draw')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -351,7 +359,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- AUTHENTICATED: Resign ---
-  .post('/:matchId/resign/:gameId', ({ headers, params }) => {
+  .post('/:matchId/resign/:gameId', async ({ headers, params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const g = gate(headers, params.matchId, params.gameId, 'resign')
     if ('failStatus' in g) {
       if (g.forfeit) {
@@ -369,12 +378,14 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- PUBLIC: Events (spectators) ---
-  .get('/:matchId/events', ({ params }) => ({
-    events: engine.getEvents(params.matchId),
-  }))
+  .get('/:matchId/events', async ({ params }) => {
+    await database.ensureMatchLoaded(params.matchId)
+    return { events: engine.getEvents(params.matchId) }
+  })
 
   // --- PUBLIC: Metrics (spectators) ---
-  .get('/:matchId/metrics', ({ params }) => {
+  .get('/:matchId/metrics', async ({ params }) => {
+    await database.ensureMatchLoaded(params.matchId)
     const metrics = engine.getMatchMetrics(params.matchId)
     if (!metrics) {
       return status(404, { error: 'Match not found' })
