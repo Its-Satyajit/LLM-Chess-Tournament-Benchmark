@@ -104,6 +104,34 @@ describe("API Integration", () => {
     expect(data.history).toEqual([])
   })
 
+  it("GET /api/match/:matchId/tokens — mints server-issued player tokens that can move", async () => {
+    // Self-contained: use a throwaway match so the shared suite match stays pristine.
+    const created = await POST<CreatedMatchResponse>("/api/match/create", {
+      playerAModel: { maxOutputTokens: 4096, name: "gpt-4o", provider: "openai", temperature: 0.7, version: "2024-08-06" },
+      playerBModel: { maxOutputTokens: 4096, name: "claude-3", provider: "anthropic", temperature: 0.7, version: "2024-05-14" },
+    })
+    const mId = created.matchId!
+    const gId = created.games![0].id
+    const pAId = created.playerAId!
+
+    const tokens = await GET<{
+      playerAId?: string
+      playerAToken?: string
+      playerBToken?: string
+    }>(`/api/match/${mId}/tokens`)
+    expect(tokens.playerAId).toBe(pAId)
+    expect(tokens.playerAToken).toBeDefined()
+    expect(tokens.playerBToken).toBeDefined()
+
+    // The minted token is a valid credential: it can make a move for white.
+    const result = await POST(
+      `/api/match/${mId}/move/${gId}`,
+      { move: "e4" },
+      { Authorization: `Bearer ${tokens.playerAToken}` },
+    )
+    expect(result.accepted).toBe(true)
+  })
+
   it("POST /api/match/:matchId/move/:gameId — requires auth", async () => {
     const data = await POST(`/api/match/${matchId}/move/${gameId}`, { move: "e2e4" })
     expect(data.error).toBeDefined()

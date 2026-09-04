@@ -72,6 +72,7 @@ export interface HistoryMatch {
 export async function listMatches(): Promise<HistoryMatch[]> {
   const res = await fetch('/api/match')
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  // SAFETY: /api/match returns { matches?: HistoryMatch[] } validated upstream
   const data = (await res.json()) as { matches?: HistoryMatch[] }
   return data.matches ?? []
 }
@@ -107,6 +108,26 @@ export async function createMatch(
     playerBId: data.playerBId,
     playerBToken: data.playerBToken,
   }
+}
+
+export interface MatchTokens {
+  playerAId: string
+  playerAToken: string
+  playerBId: string
+  playerBToken: string
+}
+
+// Mint valid player tokens for a match from its DB per-match secret, so the
+// UI always injects server-issued tokens into the prompt / Bearer fields.
+export async function getMatchTokens(matchId: string): Promise<MatchTokens> {
+  const res = await fetch(`/api/match/${encodeURIComponent(matchId)}/tokens`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  // SAFETY: /api/match/:matchId/tokens returns { playerAId, playerAToken, playerBId, playerBToken }
+  const data = (await res.json()) as MatchTokens
+  if (!data.playerAToken || !data.playerBToken) {
+    throw new Error('Failed to fetch player tokens')
+  }
+  return data
 }
 
 export async function getMatch(matchId: string): Promise<Match> {

@@ -22,8 +22,10 @@ import {
   ArrowRight,
   AlertCircle,
   Cpu,
+  KeyRound,
 } from 'lucide-react'
 import { useModels, useAddModel, useDeleteModel, useCreateMatch, type Model } from '../lib/queries'
+import { getMatchTokens } from '../lib/api'
 
 type LoadState = 'loading' | 'loaded' | 'error'
 
@@ -306,6 +308,37 @@ export default function Admin() {
     })
   }, [])
 
+  const fetchTokens = useCallback(async (matchId: string) => {
+    try {
+      const t = await getMatchTokens(matchId)
+      return { black: t.playerBToken, white: t.playerAToken }
+    } catch {
+      return null
+    }
+  }, [])
+
+  const [tokenFetchId, setTokenFetchId] = useState('')
+  const [tokenFetchMsg, setTokenFetchMsg] = useState('')
+  const handleTokenFetchIdChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setTokenFetchId(e.target.value)
+  }, [])
+  const fetchExistingTokens = useCallback(async () => {
+    const id = tokenFetchId.trim()
+    if (!id) return
+    setTokenFetchMsg('')
+    const tokens = await fetchTokens(id)
+    if (tokens) {
+      setCreatedTokens(tokens)
+      setTokenFetchMsg(`Tokens loaded for ${id}`)
+    } else {
+      setTokenFetchMsg('Could not load tokens for that match')
+    }
+  }, [tokenFetchId, fetchTokens])
+
+  const handleFetchExisting = useCallback(() => {
+    void fetchExistingTokens()
+  }, [fetchExistingTokens])
+
   const startMatch = useCallback(async () => {
     if (selectedModels.length !== 2 || createMatchMutation.isPending) return
     setMatchResult(null)
@@ -322,15 +355,14 @@ export default function Admin() {
         ok: true,
         text: `Match created: ${data.matchId}`,
       })
-      setCreatedTokens({
-        black: data.playerBToken,
-        white: data.playerAToken,
-      })
+      // Re-mint from the DB per-match secret so the shown tokens are always valid.
+      const tokens = await fetchTokens(data.matchId)
+      setCreatedTokens(tokens ?? { black: data.playerBToken, white: data.playerAToken })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start match'
       setMatchResult({ ok: false, text: msg })
     }
-  }, [selectedModels, models, createMatchMutation])
+  }, [selectedModels, models, createMatchMutation, fetchTokens])
 
   const copyToken = useCallback(
     async (which: 'A' | 'B') => {
@@ -513,6 +545,30 @@ export default function Admin() {
               </Link>
             </div>
           )}
+
+          {/* Fetch valid tokens for an existing match */}
+          <div className="pt-2 border-t border-[#242f42] space-y-2">
+            <div className="text-xs font-semibold text-slate-300">Existing Match Tokens</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="MATCH-..."
+                value={tokenFetchId}
+                onChange={handleTokenFetchIdChange}
+                aria-label="Match ID to fetch tokens for"
+                className="h-8 flex-1 rounded-lg border border-[#2e3c54] bg-[#111620] px-2.5 font-mono text-xs text-slate-200 placeholder-slate-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleFetchExisting}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-[#2e3c54] bg-[#1c2536] px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span>Fetch Tokens</span>
+              </button>
+            </div>
+            {tokenFetchMsg && <p className="text-[11px] text-slate-400">{tokenFetchMsg}</p>}
+          </div>
         </div>
       </div>
     </div>

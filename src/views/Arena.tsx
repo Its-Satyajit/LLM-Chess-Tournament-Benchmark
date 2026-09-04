@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Shield } from 'lucide-react'
 import ChessBoard from '../components/ChessBoard'
 import Plaque from '../components/arena/Plaque'
@@ -10,6 +10,7 @@ import LlmPromptCard from '../components/arena/LlmPromptCard'
 import MoveHistoryCard from '../components/arena/MoveHistoryCard'
 import WsEventsCard from '../components/arena/WsEventsCard'
 import { useArenaMatch, apiUrl } from '../hooks/useArenaMatch'
+import { useMatchTokens } from '../lib/queries'
 
 export default function Arena() {
   const {
@@ -30,6 +31,20 @@ export default function Arena() {
   } = useArenaMatch()
 
   const [activeTokens, setActiveTokens] = useState<{ black: string; white: string } | null>(null)
+
+  // Prefer create-time tokens (from QuickLaunch) and otherwise fall back to
+  // server-issued tokens fetched from the DB, so the prompt and Bearer fields
+  // always carry a valid token — even for a manually connected existing match
+  // where no create-time token was captured.
+  const { data: dbTokens } = useMatchTokens(matchId)
+  const effectiveTokens = useMemo(
+    () =>
+      activeTokens ??
+      (dbTokens && matchId.trim()
+        ? { black: dbTokens.playerBToken, white: dbTokens.playerAToken }
+        : null),
+    [activeTokens, dbTokens, matchId],
+  )
 
   // Auto-connect to the last match on load so an operator lands straight on the live board.
   const hasAutoConnectedRef = useRef(false)
@@ -134,7 +149,7 @@ export default function Arena() {
               matchInfo={matchInfo}
               activeGameId={activeGameId}
               apiUrl={apiUrl}
-              tokens={activeTokens}
+              tokens={effectiveTokens}
             />
           )}
 

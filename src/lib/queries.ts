@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getMatch, getGameState, getRatings, createMatch } from './api'
+import { getMatch, getGameState, getRatings, createMatch, getMatchTokens } from './api'
 import type { ModelConfig } from '@llm-chess-arena/shared'
 
 export interface Model {
@@ -37,6 +37,17 @@ export function useMatch(matchId: string) {
     queryFn: () => getMatch(matchId),
     enabled: Boolean(matchId.trim()),
     staleTime: 5_000,
+  })
+}
+
+// Fetches valid, server-issued player tokens for a match (minted from the DB
+// per-match secret), so the prompt/Bearer fields never use a bad token.
+export function useMatchTokens(matchId: string) {
+  return useQuery({
+    queryKey: ['matchTokens', matchId],
+    queryFn: () => getMatchTokens(matchId),
+    enabled: Boolean(matchId.trim()),
+    staleTime: 60_000,
   })
 }
 
