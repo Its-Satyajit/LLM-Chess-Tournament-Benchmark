@@ -1,5 +1,14 @@
 // Types
 export type {
+  BenchmarkConfig,
+  BenchmarkMatchType,
+  BenchmarkModelParticipant,
+  BenchmarkParticipant,
+  BenchmarkParticipants,
+  BenchmarkResult,
+  BenchmarkStatus,
+  BenchmarkSummary,
+  BenchmarkUserParticipant,
   Event,
   EventData,
   Game,

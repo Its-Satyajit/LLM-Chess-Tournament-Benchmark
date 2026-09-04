@@ -1,10 +1,61 @@
 import { db, initializeDatabase } from '../db'
-import { matches, games, events, ratings, messages as messagesTable, models as modelsTable, gameReviews } from '../db/schema'
+import {
+  account,
+  benchmarks,
+  events,
+  games,
+  gameReviews,
+  matches,
+  messages as messagesTable,
+  models as modelsTable,
+  ratings,
+  session,
+  user,
+  verification,
+} from '../db/schema'
 import { desc, eq, inArray } from 'drizzle-orm'
 import { MatchEngine, Match, Game,ClockManager } from '../game/MatchEngine'
 import { ChessGame } from '../chess/ChessGame'
-import type { EventData, ModelConfig } from '@llm-chess-arena/shared'
+import type {
+  BenchmarkConfig,
+  BenchmarkMatchType,
+  BenchmarkParticipants,
+  BenchmarkResult,
+  BenchmarkStatus,
+  BenchmarkSummary,
+  EventData,
+  ModelConfig,
+} from '@llm-chess-arena/shared'
 import type { PlyReview } from '../../lib/gameReview/coordinator'
+
+// Serialize a benchmark DB row into the explicit public/owner schema. Only
+// fields that are safe to expose are ever returned — never account data.
+export function benchmarkSummaryFromRow(row: typeof benchmarks.$inferSelect): BenchmarkSummary {
+  return {
+    id: row.id,
+    // SAFETY: match_type stores one of the BenchmarkMatchType literals
+    matchType: row.matchType as BenchmarkMatchType,
+    // SAFETY: status stores one of the BenchmarkStatus literals
+    status: row.status as BenchmarkStatus,
+    title: row.title,
+    isPrivate: row.isPrivate,
+    // SAFETY: config is stored as JSON.stringify(BenchmarkConfig)
+    config: JSON.parse(row.config) as BenchmarkConfig,
+    // SAFETY: participants is stored as JSON.stringify(BenchmarkParticipants)
+    participants: JSON.parse(row.participants) as BenchmarkParticipants,
+    matchId: row.matchId,
+    // SAFETY: result is stored as JSON.stringify(BenchmarkResult) or null
+    result: row.result ? (JSON.parse(row.result) as BenchmarkResult) : null,
+    error: row.error,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    startedAt: row.startedAt
+      ? (row.startedAt instanceof Date ? row.startedAt : new Date(row.startedAt)).toISOString()
+      : null,
+    completedAt: row.completedAt
+      ? (row.completedAt instanceof Date ? row.completedAt : new Date(row.completedAt)).toISOString()
+      : null,
+  }
+}
 
 export interface ReviewPlyInput {
   accuracy?: number
@@ -550,6 +601,11 @@ export class DatabaseService {
   // Clear all data (for tests) — children first to satisfy FK constraints
   async clearAll(): Promise<void> {
     await this.ensureInitialized()
+    await db.delete(benchmarks)
+    await db.delete(session)
+    await db.delete(account)
+    await db.delete(verification)
+    await db.delete(user)
     await db.delete(gameReviews)
     await db.delete(messagesTable)
     await db.delete(modelsTable)
@@ -962,6 +1018,167 @@ export class DatabaseService {
       evaluatedGames: allReviews.length,
       lastUpdated: new Date(),
     }
+  }
+
+  // ------------------------------------------------------------------
+  // User benchmarks (ownership, lifecycle, public-history enrichment)
+  // ------------------------------------------------------------------
+
+  async createBenchmark(input: {
+    ownerId: string
+    matchType: BenchmarkMatchType
+    title: string | null
+    isPrivate: boolean
+    config: BenchmarkConfig
+    participants: BenchmarkParticipants
+  }): Promise<BenchmarkSummary> {
+    await this.ensureInitialized()
+    const now = new Date()
+    const id = `BM-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+    await db.insert(benchmarks).values({
+      config: JSON.stringify(input.config),
+      createdAt: now,
+      id,
+      isPrivate: input.isPrivate,
+      matchType: input.matchType,
+      ownerId: input.ownerId,
+      participants: JSON.stringify(input.participants),
+      status: 'created',
+      title: input.title,
+      updatedAt: now,
+    })
+    const row = await this.getBenchmarkRow(id)
+    if (!row) {
+      throw new Error(`Benchmark ${id} was not persisted`)
+    }
+    return benchmarkSummaryFromRow(row)
+  }
+
+  // If a running benchmark's engine match has completed, fold the final state
+  // (status/completedAt/result) back into the benchmark row.
+  private async refreshBenchmarkRow(
+    row: typeof benchmarks.$inferSelect,
+  ): Promise<typeof benchmarks.$inferSelect> {
+    if (row.status !== 'running' || !row.matchId) return row
+    const matchRow = await db.select().from(matches).where(eq(matches.id, row.matchId)).get()
+    if (!matchRow || matchRow.status !== 'completed') return row
+
+    const gameRows = await db
+      .select()
+      .from(games)
+      .where(eq(games.matchId, row.matchId))
+    let playerAWins = 0
+    let playerBWins = 0
+    let draws = 0
+    for (const g of gameRows) {
+      if (g.status !== 'completed' || !g.result) continue
+      // SAFETY: result is stored as JSON.stringify({ winner?: 'white' | 'black' })
+      const res = JSON.parse(g.result) as { winner?: string | null }
+      const whiteIsA = g.whitePlayerId === matchRow.playerAId
+      if (res.winner === 'white') {
+        if (whiteIsA) playerAWins += 1
+        else playerBWins += 1
+      } else if (res.winner === 'black') {
+        if (whiteIsA) playerBWins += 1
+        else playerAWins += 1
+      } else {
+        draws += 1
+      }
+    }
+    const result: BenchmarkResult = {
+      games: gameRows.length,
+      playerAWins,
+      playerBWins,
+      draws,
+    }
+    const now = new Date()
+    await db.update(benchmarks)
+      .set({
+        completedAt: matchRow.completedAt ?? now,
+        result: JSON.stringify(result),
+        status: 'completed',
+        updatedAt: now,
+      })
+      .where(eq(benchmarks.id, row.id))
+    return { ...row, completedAt: matchRow.completedAt ?? now, result: JSON.stringify(result), status: 'completed' }
+  }
+
+  async getBenchmarkRow(id: string): Promise<typeof benchmarks.$inferSelect | null> {
+    await this.ensureInitialized()
+    const row = await db.select().from(benchmarks).where(eq(benchmarks.id, id)).get()
+    if (!row) return null
+    return this.refreshBenchmarkRow(row)
+  }
+
+  async listBenchmarksByOwner(ownerId: string): Promise<BenchmarkSummary[]> {
+    await this.ensureInitialized()
+    const rows = await db
+      .select()
+      .from(benchmarks)
+      .where(eq(benchmarks.ownerId, ownerId))
+      .orderBy(desc(benchmarks.createdAt), desc(benchmarks.id))
+    const summaries: BenchmarkSummary[] = []
+    for (const row of rows) {
+      summaries.push(benchmarkSummaryFromRow(await this.refreshBenchmarkRow(row)))
+    }
+    return summaries
+  }
+
+  // Marks a created benchmark as running against its freshly created match.
+  async startBenchmark(id: string, matchId: string): Promise<void> {
+    await this.ensureInitialized()
+    const now = new Date()
+    await db.update(benchmarks)
+      .set({ matchId, startedAt: now, status: 'running', updatedAt: now })
+      .where(eq(benchmarks.id, id))
+  }
+
+  async setBenchmarkStatus(
+    id: string,
+    status: Extract<BenchmarkStatus, 'cancelled' | 'failed'>,
+    error?: string,
+  ): Promise<void> {
+    await this.ensureInitialized()
+    const now = new Date()
+    await db.update(benchmarks)
+      .set({ error: error ?? null, status, updatedAt: now })
+      .where(eq(benchmarks.id, id))
+  }
+
+  async deleteBenchmark(id: string): Promise<void> {
+    await this.ensureInitialized()
+    await db.delete(benchmarks).where(eq(benchmarks.id, id))
+  }
+
+  // Minimal public labels for /api/match (global history): which benchmark row
+  // backs a match, its explicit match type, and the human side's public name.
+  // Never exposes owner account data (emails, ids, sessions).
+  async getMatchBenchmarkLabels(matchIds: string[]): Promise<
+    Record<string, { matchType: BenchmarkMatchType; humanPublicName: string | null }>
+  > {
+    await this.ensureInitialized()
+    if (matchIds.length === 0) return {}
+    const rows = await db
+      .select()
+      .from(benchmarks)
+      .where(inArray(benchmarks.matchId, matchIds))
+    const labels: Record<string, { matchType: BenchmarkMatchType; humanPublicName: string | null }> = {}
+    for (const row of rows) {
+      if (!row.matchId) continue
+      // SAFETY: participants is stored as JSON.stringify(BenchmarkParticipants)
+      const participants = JSON.parse(row.participants) as BenchmarkParticipants
+      const human = participants.playerA.kind === 'user'
+        ? participants.playerA
+        : participants.playerB.kind === 'user'
+          ? participants.playerB
+          : null
+      // SAFETY: match_type stores one of the BenchmarkMatchType literals
+      labels[row.matchId] = {
+        humanPublicName: human ? human.publicName : null,
+        matchType: row.matchType as BenchmarkMatchType,
+      }
+    }
+    return labels
   }
 }
 

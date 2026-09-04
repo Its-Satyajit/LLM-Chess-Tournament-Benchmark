@@ -1,4 +1,94 @@
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+
+// ---------------------------------------------------------------------------
+// Better Auth core tables (user accounts + sessions). Table/column names are
+// the Better Auth defaults — the Drizzle adapter maps model fields to the
+// column properties declared below (DB column names may differ freely).
+// See @better-auth/core/dist/db/schema for the canonical field set (v1.7).
+// ---------------------------------------------------------------------------
+
+export const user = sqliteTable('user', {
+  id: text('id').primaryKey(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+  image: text('image'),
+  name: text('name').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+})
+
+export const session = sqliteTable('session', {
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  id: text('id').primaryKey(),
+  ipAddress: text('ip_address'),
+  token: text('token').notNull().unique(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  userAgent: text('user_agent'),
+  userId: text('user_id').notNull().references(() => user.id),
+}, (table) => [index('session_user_id_idx').on(table.userId)])
+
+export const account = sqliteTable('account', {
+  accessToken: text('access_token'),
+  accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp' }),
+  accountId: text('account_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  id: text('id').primaryKey(),
+  idToken: text('id_token'),
+  issuer: text('issuer').notNull(),
+  password: text('password'),
+  providerId: text('provider_id').notNull(),
+  refreshToken: text('refresh_token'),
+  refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp' }),
+  scope: text('scope'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  userId: text('user_id').notNull().references(() => user.id),
+}, (table) => [uniqueIndex('account_issuer_account_id_unique').on(table.issuer, table.accountId)])
+
+export const verification = sqliteTable('verification', {
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  value: text('value').notNull(),
+}, (table) => [index('verification_identifier_idx').on(table.identifier)])
+
+// ---------------------------------------------------------------------------
+// User-owned benchmarks (LLM vs LLM | LLM vs User). A benchmark is the
+// user-facing record of a run: it owns the semantic match type, participants,
+// configuration snapshot, lifecycle and result. When started it links to an
+// engine `match` row, which continues to drive execution unchanged.
+// ---------------------------------------------------------------------------
+
+export const benchmarkStatus = ['created', 'running', 'completed', 'failed', 'cancelled'] as const
+export type BenchmarkStatus = (typeof benchmarkStatus)[number]
+
+export const benchmarkMatchType = ['llm_vs_llm', 'llm_vs_user'] as const
+export type BenchmarkMatchType = (typeof benchmarkMatchType)[number]
+
+export const benchmarks = sqliteTable('benchmarks', {
+  completedAt: integer('completed_at', { mode: 'timestamp' }),
+  config: text('config').notNull(), // JSON string of the effective engine config snapshot
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  error: text('error'),
+  id: text('id').primaryKey(),
+  isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+  matchId: text('match_id').references(() => matches.id),
+  matchType: text('match_type', { enum: benchmarkMatchType }).notNull().default('llm_vs_llm'),
+  ownerId: text('owner_id').notNull().references(() => user.id),
+  participants: text('participants').notNull(), // JSON string of explicit participants snapshot
+  result: text('result'), // JSON string of the match result snapshot (when completed)
+  startedAt: integer('started_at', { mode: 'timestamp' }),
+  status: text('status', { enum: benchmarkStatus }).notNull().default('created'),
+  title: text('title'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+}, (table) => [
+  index('benchmarks_owner_id_idx').on(table.ownerId),
+  index('benchmarks_status_idx').on(table.status),
+  index('benchmarks_created_at_idx').on(table.createdAt),
+  index('benchmarks_match_id_idx').on(table.matchId),
+])
 
 export const matches = sqliteTable('matches', {
   boardMode: text('board_mode').notNull().default('assisted'), // pure | assisted

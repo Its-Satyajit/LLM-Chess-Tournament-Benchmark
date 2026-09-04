@@ -1,5 +1,24 @@
-import type { ModelConfig } from '@llm-chess-arena/shared'
+import type {
+  BenchmarkConfig,
+  BenchmarkMatchType,
+  BenchmarkParticipant,
+  BenchmarkParticipants,
+  BenchmarkResult,
+  BenchmarkStatus,
+  BenchmarkSummary as SharedBenchmarkSummary,
+  ModelConfig,
+} from '@llm-chess-arena/shared'
 import { api } from './eden'
+
+export type {
+  BenchmarkConfig,
+  BenchmarkMatchType,
+  BenchmarkParticipant,
+  BenchmarkParticipants,
+  BenchmarkResult,
+  BenchmarkStatus,
+}
+export type BenchmarkSummary = SharedBenchmarkSummary
 
 export interface Match {
   id: string
@@ -66,6 +85,10 @@ export interface HistoryMatch {
   playerBId: string
   playerAModel: { name: string; provider: string }
   playerBModel: { name: string; provider: string }
+  /** Explicit benchmark semantics when a user-created benchmark backs this match. */
+  matchType?: 'llm_vs_llm' | 'llm_vs_user'
+  /** Human participant's public display name for LLM vs User matches. */
+  humanName?: string | null
   games: HistoryGame[]
 }
 
@@ -193,4 +216,106 @@ export async function getRatings(): Promise<{ ratings: Rating[] }> {
       wins: r.wins,
     })),
   }
+}
+
+// --- User-owned benchmarks (auth required; owner derived from the session) ---
+
+export interface BenchmarkCreateInput {
+  matchType: 'llm_vs_llm' | 'llm_vs_user'
+  title?: string
+  visibility?: 'public' | 'private'
+  timeControl?: string
+  boardMode?: 'assisted' | 'pure'
+  startingPosition?: 'standard' | 'chess960'
+  playerAModelId?: string
+  playerBModelId?: string
+  llmModelId?: string
+}
+
+export interface BenchmarkStartResult extends BenchmarkSummary {
+  matchId: string
+  playerAId: string
+  playerAToken: string
+  playerBId: string
+  playerBToken: string
+}
+
+async function parseError(res: Response): Promise<never> {
+  let message = `HTTP ${res.status}`
+  try {
+    // SAFETY: error body shape { error?: string } from our Elysia routes
+    const body = (await res.json()) as { error?: string }
+    if (body.error) message = body.error
+  } catch {
+    // non-JSON error body — fall back to status text
+  }
+  throw new Error(message)
+}
+
+export async function listMyBenchmarks(): Promise<BenchmarkSummary[]> {
+  const res = await fetch('/api/benchmarks', { credentials: 'same-origin' })
+  if (!res.ok) await parseError(res)
+  // SAFETY: /api/benchmarks returns { benchmarks: BenchmarkSummary[] }
+  const data = (await res.json()) as { benchmarks: BenchmarkSummary[] }
+  return data.benchmarks ?? []
+}
+
+export async function createBenchmark(input: BenchmarkCreateInput): Promise<BenchmarkSummary> {
+  const res = await fetch('/api/benchmarks', {
+    body: JSON.stringify(input),
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  if (!res.ok) await parseError(res)
+  // SAFETY: create returns { benchmark: BenchmarkSummary }
+  const data = (await res.json()) as { benchmark: BenchmarkSummary }
+  return data.benchmark
+}
+
+export async function getBenchmark(id: string): Promise<BenchmarkSummary> {
+  const res = await fetch(`/api/benchmarks/${encodeURIComponent(id)}`, { credentials: 'same-origin' })
+  if (!res.ok) await parseError(res)
+  // SAFETY: detail returns { benchmark: BenchmarkSummary }
+  const data = (await res.json()) as { benchmark: BenchmarkSummary }
+  return data.benchmark
+}
+
+export async function startBenchmark(id: string): Promise<BenchmarkStartResult> {
+  const res = await fetch(`/api/benchmarks/${encodeURIComponent(id)}/start`, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  if (!res.ok) await parseError(res)
+  // SAFETY: start returns { benchmark, matchId, playerAId, playerAToken, playerBId, playerBToken }
+  const data = await res.json() as {
+    benchmark: BenchmarkSummary
+    matchId: string
+    playerAId: string
+    playerAToken: string
+    playerBId: string
+    playerBToken: string
+  }
+  return { ...data.benchmark, ...data }
+}
+
+export async function cancelBenchmark(id: string): Promise<BenchmarkSummary> {
+  const res = await fetch(`/api/benchmarks/${encodeURIComponent(id)}/cancel`, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  if (!res.ok) await parseError(res)
+  // SAFETY: cancel returns { benchmark: BenchmarkSummary }
+  const data = (await res.json()) as { benchmark: BenchmarkSummary }
+  return data.benchmark
+}
+
+export async function deleteBenchmark(id: string): Promise<void> {
+  const res = await fetch(`/api/benchmarks/${encodeURIComponent(id)}`, {
+    credentials: 'same-origin',
+    method: 'DELETE',
+  })
+  if (!res.ok) await parseError(res)
 }

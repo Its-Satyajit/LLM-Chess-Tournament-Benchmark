@@ -184,3 +184,67 @@ export interface EventData {
 
 export type TournamentFormat = "round_robin" | "swiss" | "knockout";
 export type TournamentStatus = "pending" | "active" | "completed";
+
+// ---------------------------------------------------------------------------
+// User-owned benchmarks
+// ---------------------------------------------------------------------------
+
+export type BenchmarkMatchType = "llm_vs_llm" | "llm_vs_user";
+
+export type BenchmarkStatus =
+  | "created"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface BenchmarkConfig {
+  timeControl: string;
+  boardMode: "pure" | "assisted";
+  startingPosition: "standard" | "chess960";
+  isPrivate: boolean;
+}
+
+export interface BenchmarkModelParticipant {
+  kind: "model";
+  modelId: string;
+  model: ModelConfig;
+}
+
+export interface BenchmarkUserParticipant {
+  kind: "user";
+  userId: string;
+  publicName: string;
+}
+
+export type BenchmarkParticipant =
+  | BenchmarkModelParticipant
+  | BenchmarkUserParticipant;
+
+export interface BenchmarkParticipants {
+  playerA: BenchmarkParticipant;
+  playerB: BenchmarkParticipant;
+}
+
+export interface BenchmarkResult {
+  games: number;
+  playerAWins: number;
+  playerBWins: number;
+  draws: number;
+}
+
+export interface BenchmarkSummary {
+  id: string;
+  matchType: BenchmarkMatchType;
+  status: BenchmarkStatus;
+  title: string | null;
+  isPrivate: boolean;
+  config: BenchmarkConfig;
+  participants: BenchmarkParticipants;
+  matchId: string | null;
+  result: BenchmarkResult | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}

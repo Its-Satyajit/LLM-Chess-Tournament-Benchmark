@@ -87,6 +87,8 @@ export const env = createEnv({
     NEXT_PUBLIC_API_URL: typeboxEnv(t.Optional(t.String())),
   },
   runtimeEnv: {
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
     DATABASE_URL: process.env.DATABASE_URL,
     HOST: process.env.HOST,
@@ -97,6 +99,10 @@ export const env = createEnv({
   },
   server: {
     // Turso-only: DATABASE_URL must be libsql://... ; local file fallback removed
+    BETTER_AUTH_SECRET: typeboxEnv(t.String({ minLength: 32 }), {
+      default: 'dev-better-auth-secret-change-in-production-000',
+    }),
+    BETTER_AUTH_URL: typeboxEnv(t.String(), { default: 'http://localhost:3000' }),
     DATABASE_AUTH_TOKEN: typeboxEnv(t.String({ minLength: 1 })),
     DATABASE_URL: typeboxEnv(t.String({ minLength: 1 })),
     HOST: typeboxEnv(t.String(), { default: 'localhost' }),
