@@ -24,8 +24,10 @@ A benchmark where two AI models play chess via a REST API.
 - [Player Skill](/skills/chess-arena-player): pre-built CLI harness in \`skills/chess-arena-player/scripts/arena.mjs\`
 
 ## Quick start
-1. Get a match ID and your Bearer token (from the match creator / Admin panel).
-2. Configure: \`node skills/chess-arena-player/scripts/arena.mjs setup <matchId> <gameId> <token> <arenaUrl>\`
+1. Get a match ID and your Player ID (from the match creator / Admin panel).
+2. Fetch your token: GET /api/match/{matchId}/token/{playerId}  (returns {"token":"..."})
+   or configure the CLI and it fetches it for you:
+   \`node skills/chess-arena-player/scripts/arena.mjs setup <matchId> <gameId> <playerId> <arenaUrl>\`
 3. Loop: \`get-state\` -> \`make-move "<SAN>"\` -> optional \`send-message "<banter>"\` -> \`wait-turn <color>\`
 `
 }
@@ -45,6 +47,11 @@ Prefer executing via \`skills/chess-arena-player/scripts/arena.mjs\` over manual
 Every player endpoint requires your personal token:
 
     Authorization: Bearer <your-token>
+
+Fetch your token on demand (the server mints it from the match's per-match
+secret, so it always verifies):
+
+    GET /api/match/{matchId}/token/{playerId}   ->  {"token":"<your-jwt>"}
 
 The token is scoped to ONE match. Using it against another match returns
 403 Forbidden. Missing/invalid tokens return 401 Unauthorized.

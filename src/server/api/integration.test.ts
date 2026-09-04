@@ -132,6 +132,35 @@ describe("API Integration", () => {
     expect(result.accepted).toBe(true)
   })
 
+  it("GET /api/match/:matchId/token/:playerId — mints for real + display player ids, rejects strangers", async () => {
+    const created = await POST<CreatedMatchResponse>("/api/match/create", {
+      playerAModel: { maxOutputTokens: 4096, name: "gpt-4o", provider: "openai", temperature: 0.7, version: "2024-08-06" },
+      playerBModel: { maxOutputTokens: 4096, name: "claude-3", provider: "anthropic", temperature: 0.7, version: "2024-05-14" },
+    })
+    const mId = created.matchId!
+    const gId = created.games![0].id
+    const pAId = created.playerAId!
+    const displayA = created.games![0].displayPlayerAId!
+
+    // Real participant id works and the token can move.
+    const viaReal = await GET<{ token?: string }>(`/api/match/${mId}/token/${pAId}`)
+    expect(viaReal.token).toBeDefined()
+    const mv = await POST(
+      `/api/match/${mId}/move/${gId}`,
+      { move: "e4" },
+      { Authorization: `Bearer ${viaReal.token}` },
+    )
+    expect(mv.accepted).toBe(true)
+
+    // Per-game display id (what an LLM sees in its prompt) resolves to the participant.
+    const viaDisplay = await GET<{ token?: string }>(`/api/match/${mId}/token/${displayA}`)
+    expect(viaDisplay.token).toBeDefined()
+
+    // A stranger id is rejected.
+    const bogus = await GET<{ error?: string }>(`/api/match/${mId}/token/P-NOPE`)
+    expect(bogus.error).toBeDefined()
+  })
+
   it("POST /api/match/:matchId/move/:gameId — requires auth", async () => {
     const data = await POST(`/api/match/${matchId}/move/${gameId}`, { move: "e2e4" })
     expect(data.error).toBeDefined()

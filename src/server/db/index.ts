@@ -123,6 +123,8 @@ export async function initializeDatabase(): Promise<void> {
       game_number INTEGER NOT NULL,
       white_player_id TEXT NOT NULL,
       black_player_id TEXT NOT NULL,
+      display_player_a_id TEXT,
+      display_player_b_id TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       result TEXT,
       result_reason TEXT,
@@ -214,6 +216,16 @@ export async function initializeDatabase(): Promise<void> {
     }
     if (!columnNames.has('secret')) {
       await client.execute('ALTER TABLE matches ADD COLUMN secret TEXT')
+    }
+
+    // games: persist per-game display ids so LLM prompts stay resolvable
+    const gameTableInfo = await client.execute('PRAGMA table_info(games)')
+    const gameColumnNames = new Set(gameTableInfo.rows.map(c => String(c.name)))
+    if (!gameColumnNames.has('display_player_a_id')) {
+      await client.execute('ALTER TABLE games ADD COLUMN display_player_a_id TEXT')
+    }
+    if (!gameColumnNames.has('display_player_b_id')) {
+      await client.execute('ALTER TABLE games ADD COLUMN display_player_b_id TEXT')
     }
   } catch (err) {
     console.error('⚠️  Migration check failed:', err)
