@@ -6,6 +6,7 @@ import ratingsRoutes from './api/ratings'
 import adminRoutes from './api/admin'
 import manifestRoutes from './api/manifest'
 import { llmsRoutes } from './api/llms'
+import benchmarkRoutes from './api/benchmark'
 
 export const apiApp = new Elysia()
   .use(cors())
@@ -17,5 +18,6 @@ export const apiApp = new Elysia()
   .use(tournamentRoutes)
   .use(ratingsRoutes)
   .use(adminRoutes)
+  .use(benchmarkRoutes)
 
 export type ApiApp = typeof apiApp

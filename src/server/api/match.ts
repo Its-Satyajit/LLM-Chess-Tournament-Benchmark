@@ -46,9 +46,9 @@ function gate(
     return { failError: 'Rate limited: too many requests this turn', failStatus: 429 }
   }
 
-  // ADR-004: Track API call; exceeding limits forfeits the game
-  if (!engine.trackApiCall(matchId, gameId, auth.playerId)) {
-    return { failError: 'API_LIMIT_EXCEEDED', failStatus: 403, forfeit: true }
+  // ADR-023: Track API call for non-move routes; makeMove handles its own budget without double-counting
+  if (keyPrefix !== 'move' && !engine.trackApiCall(matchId, gameId, auth.playerId)) {
+    return { failError: 'Rate limited: API call budget reached. Retry again.', failStatus: 429 }
   }
 
   return { playerId: auth.playerId }
@@ -210,10 +210,10 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       }
     }
 
-    // ADR-004: Track API call for budget enforcement
+    // ADR-023: Track API call for budget enforcement (non-forfeiting rate limit)
     if (!engine.trackApiCall(params.matchId, params.gameId, playerId)) {
       persistTurn(params.matchId)
-      return status(403, { error: 'API_LIMIT_EXCEEDED', forfeit: true })
+      return status(429, { error: 'Rate limited: API call budget reached. Retry again.' })
     }
 
     // ADR-003: Clock runs during API processing
@@ -245,6 +245,10 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       engine.makeMove(params.matchId, params.gameId, playerId, body.move),
     )
     persistTurn(params.matchId)
+
+    if (result.error === 'API_LIMIT') {
+      return status(429, { error: 'Rate limited: API call budget reached. Retry again.' })
+    }
 
     // Story 45: the per-turn allowance resets when a move is accepted
     if (result.accepted) {

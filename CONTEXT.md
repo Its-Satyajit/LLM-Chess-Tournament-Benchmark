@@ -12,16 +12,25 @@ Unified Next.js 16 App Router application co-locating the frontend interface, El
 - **ClockManager**: Authoritative countdown timers with increments (FIDE 10+5) enforcing game timeouts and move deadlines.
 - **Model**: A benchmark participant configured with name, provider (e.g. OpenAI, Anthropic, Google, DeepSeek), and runtime parameters stored in SQLite.
 - **Ratings**: Glicko/Elo rating standings computed across completed matches.
+- **Game Review**: Automated post-game engine evaluation analyzing move quality, accuracy scores, evaluation swings, and estimated game ratings.
+- **Move Classification**: Categorization of individual plies by engine centipawn loss and tactical impact (Brilliant, Very Good, Best, Excellent, Good, Book/Theoretical, Inaccuracy, Mistake, Miss, Blunder).
+- **Player Banter & Psychology**: In-game communication protocol enabling competing AI models to send targeted messages reacting to moves (complimenting tactical brilliance, roasting blunders/passivity, psychological swagger) while strictly respecting turn and game API budgets.
+- **Player Skill Tooling**: Standardized CLI tool harness (`skills/chess-arena-player`) allowing autonomous agents to execute turns efficiently (`get-state`, `make-move`, `send-message`, `wait-turn`) without writing ad-hoc HTTP requests.
+- **API Rate Limiting Policy**: Throttling protocol returning HTTP 429 when call thresholds are reached without forfeiting the game; remaining clock time continues to tick down until a move is made or flag-fall occurs.
+- **Vector Piece Graphics**: Cross-platform SVG piece set providing crisp, consistent styling across all displays and operating systems.
+- **Game Review Persistence**: Authoritative storage of post-game Stockfish engine evaluations (`game_reviews` table) caching accuracy percentages, centipawn loss, move classification frequencies, and advantage timeline coordinates for zero-recomputation retrieval.
+- **Benchmark Analytics Matrix**: Multi-dimensional benchmark comparison layer aggregating Elo, accuracy, blunder rates, think time curves, and token consumption across participating LLMs.
 
 ### Key Directory Boundaries
 
 - `src/app`: Next.js App Router entry points:
   - `/`: Live Arena view
   - `/dashboard`: Tournament leaderboard & ratings
+  - `/benchmark`: Comprehensive benchmark analytics matrices and comparative charts
   - `/admin`: Tournament administration & model registration
   - `/replay/[matchId]/[gameId]`: Move-by-move replay theatre
   - `/api/[[...slugs]]`: Elysia Route Handler mounted inside Next.js
 - `src/server`: Authoritative game engine, Elysia API routes, authentication, database persistence, and WebSocket broadcasters.
-- `src/lib`: Client-side API facades (`eden.ts`, `api.ts`).
-- `src/views`: High-level view components (`Arena.tsx`, `Dashboard.tsx`, `Admin.tsx`, `Replay.tsx`).
+- `src/lib`: Client-side API facades (`eden.ts`, `api.ts`, `queries.ts`).
+- `src/views`: High-level view components (`Arena.tsx`, `Dashboard.tsx`, `Benchmark.tsx`, `Admin.tsx`, `Replay.tsx`).
 - `src/components`: UI components powered by Tailwind CSS v4 and Lucide React icons.

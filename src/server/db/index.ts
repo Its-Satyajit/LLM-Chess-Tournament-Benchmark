@@ -1,8 +1,7 @@
 import { drizzle } from 'drizzle-orm/libsql'
 import { createClient, type Client } from '@libsql/client'
 import * as schema from './schema'
-import { resolve } from 'path'
-import { dirname } from 'path'
+import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -16,7 +15,12 @@ if (process.loadEnvFile) {
   }
 }
 
-function getClientConfig(): { url: string; authToken?: string } {
+export interface ClientConfig {
+  url: string
+  authToken?: string
+}
+
+function getClientConfig(): ClientConfig {
   // Test isolation: never hit Turso from vitest — `clearAll()` would wipe production.
   const nodeEnv = process.env.NODE_ENV
   console.log('[db] getClientConfig NODE_ENV', nodeEnv, 'DATABASE_URL', process.env.DATABASE_URL?.slice(0, 40))
@@ -69,10 +73,13 @@ function getClientConfig(): { url: string; authToken?: string } {
 }
 
 // Global singleton for Next.js HMR / route-handler parity — client + drizzle must survive hot reloads
-const globalForTurso = globalThis as unknown as {
+interface GlobalTursoState {
   __turso_client__?: Client
   __turso_drizzle__?: ReturnType<typeof drizzle>
 }
+
+// SAFETY: Extending globalThis to retain Turso client and Drizzle instance across Next.js HMR reloads
+const globalForTurso = globalThis as typeof globalThis & GlobalTursoState
 
 function getClient(): Client {
   if (!globalForTurso.__turso_client__) {
@@ -176,6 +183,19 @@ export async function initializeDatabase(): Promise<void> {
       provider TEXT NOT NULL,
       config TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS game_reviews (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL UNIQUE REFERENCES games(id),
+      match_id TEXT NOT NULL REFERENCES matches(id),
+      depth INTEGER NOT NULL DEFAULT 16,
+      white_accuracy REAL NOT NULL,
+      black_accuracy REAL NOT NULL,
+      white_rating INTEGER,
+      black_rating INTEGER,
+      classification_counts TEXT NOT NULL,
+      plies TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `)
 
   // Migrate existing tables if columns were added later
@@ -187,6 +207,9 @@ export async function initializeDatabase(): Promise<void> {
     }
     if (!columnNames.has('chess960_seed')) {
       await client.execute('ALTER TABLE matches ADD COLUMN chess960_seed INTEGER')
+    }
+    if (!columnNames.has('metrics')) {
+      await client.execute('ALTER TABLE matches ADD COLUMN metrics TEXT')
     }
   } catch (err) {
     console.error('⚠️  Migration check failed:', err)

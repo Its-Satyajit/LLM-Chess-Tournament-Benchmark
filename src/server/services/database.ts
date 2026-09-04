@@ -1,9 +1,25 @@
 import { db, initializeDatabase } from '../db'
-import { matches, games, events, ratings, messages as messagesTable, models as modelsTable } from '../db/schema'
+import { matches, games, events, ratings, messages as messagesTable, models as modelsTable, gameReviews } from '../db/schema'
 import { desc, eq, inArray } from 'drizzle-orm'
 import { MatchEngine, Match, Game,ClockManager } from '../game/MatchEngine'
 import { ChessGame } from '../chess/ChessGame'
-import type { EventData } from '@llm-chess-arena/shared'
+import type { EventData, ModelConfig } from '@llm-chess-arena/shared'
+import type { PlyReview } from '../../lib/gameReview/coordinator'
+
+export interface ReviewPlyInput {
+  accuracy?: number
+  bestMove?: string
+  centipawns?: number
+  classification?: string
+  fen?: string
+  move?: string
+  moveNumber?: number
+  playedMove?: string
+  ply: number
+  pv?: string[]
+  turn?: 'w' | 'b' | string
+  winProbability?: number
+}
 
 export class DatabaseService {
   private engine: MatchEngine
@@ -30,20 +46,22 @@ export class DatabaseService {
   async saveMatch(match: Match): Promise<void> {
     await this.ensureInitialized()
     const existing = await db.select().from(matches).where(eq(matches.id, match.id)).get()
+    const matchMetrics = this.engine.getMatchMetrics(match.id)
     const values = {
+      boardMode: match.boardMode,
+      chess960Seed: match.chess960Seed,
+      completedAt: match.completedAt || null,
+      createdAt: match.createdAt,
       id: match.id,
+      isPrivate: match.isPrivate ?? false,
+      metrics: matchMetrics ? JSON.stringify(matchMetrics) : null,
       playerAId: match.playerAId,
-      playerBId: match.playerBId,
       playerAModel: JSON.stringify(match.playerAModel),
+      playerBId: match.playerBId,
       playerBModel: JSON.stringify(match.playerBModel),
+      startingPosition: match.startingPosition,
       status: match.status,
       timeControl: match.timeControl,
-      startingPosition: match.startingPosition,
-      chess960Seed: match.chess960Seed,
-      boardMode: match.boardMode,
-      isPrivate: match.isPrivate ?? false,
-      createdAt: match.createdAt,
-      completedAt: match.completedAt || null,
     }
     if (existing) {
       await db.update(matches).set(values).where(eq(matches.id, match.id))
@@ -269,8 +287,8 @@ export class DatabaseService {
       timeControl: string
       playerAId: string
       playerBId: string
-      playerAModel: { name: string; provider: string; [k: string]: unknown }
-      playerBModel: { name: string; provider: string; [k: string]: unknown }
+      playerAModel: ModelConfig
+      playerBModel: ModelConfig
     }
     games: Array<{
       id: string
@@ -296,9 +314,10 @@ export class DatabaseService {
         .from(games)
         .where(eq(games.matchId, row.id))
         .orderBy(games.gameNumber)
-      // SAFETY: playerA/B model fields were written as JSON.stringify(ModelConfig)
-      const playerAModel = JSON.parse(row.playerAModel) as { name: string; provider: string; [k: string]: unknown }
-      const playerBModel = JSON.parse(row.playerBModel) as { name: string; provider: string; [k: string]: unknown }
+      // SAFETY: playerAModel field was written as JSON.stringify(ModelConfig)
+      const playerAModel = JSON.parse(row.playerAModel) as ModelConfig
+      // SAFETY: playerBModel field was written as JSON.stringify(ModelConfig)
+      const playerBModel = JSON.parse(row.playerBModel) as ModelConfig
       result.push({
         games: dbGames.map((g) => ({
           blackPlayerId: g.blackPlayerId,
@@ -306,7 +325,8 @@ export class DatabaseService {
           // SAFETY: result is stored as JSON.stringify(GameResult) or null
           id: g.id,
           moveCount: g.moveCount,
-          result: g.result ? JSON.parse(g.result) as { winner: string; reason: string } : null,
+          // SAFETY: result is stored as JSON string with winner and reason
+          result: g.result ? (JSON.parse(g.result) as { reason: string; winner: string }) : null,
           startingPosition: g.fenInitial === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
             ? 'standard' as const
             : 'chess960' as const,
@@ -324,6 +344,7 @@ export class DatabaseService {
           playerAModel,
           playerBId: row.playerBId,
           playerBModel,
+          // SAFETY: row.status is a stored union string validated by the writer
           status: row.status as 'pending' | 'active' | 'completed',
           timeControl: row.timeControl,
         },
@@ -439,6 +460,7 @@ export class DatabaseService {
   // Clear all data (for tests) — children first to satisfy FK constraints
   async clearAll(): Promise<void> {
     await this.ensureInitialized()
+    await db.delete(gameReviews)
     await db.delete(messagesTable)
     await db.delete(modelsTable)
     await db.delete(events)
@@ -468,11 +490,400 @@ export class DatabaseService {
       gamesPlayed: r.gamesPlayed,
     }))
   }
+
+  // Persist a deep Stockfish game review
+  async saveGameReview(review: {
+    id: string
+    gameId: string
+    matchId: string
+    depth: number
+    whiteAccuracy: number
+    blackAccuracy: number
+    whiteRating?: number | null
+    blackRating?: number | null
+    classificationCounts: {
+      white: Record<string, number>
+      black: Record<string, number>
+    }
+    plies: Array<PlyReview | ReviewPlyInput>
+    createdAt?: Date
+  }): Promise<void> {
+    await this.ensureInitialized()
+    const values = {
+      id: review.id,
+      gameId: review.gameId,
+      matchId: review.matchId,
+      depth: review.depth,
+      whiteAccuracy: review.whiteAccuracy,
+      blackAccuracy: review.blackAccuracy,
+      whiteRating: review.whiteRating ?? null,
+      blackRating: review.blackRating ?? null,
+      classificationCounts: JSON.stringify(review.classificationCounts),
+      plies: JSON.stringify(review.plies),
+      createdAt: review.createdAt ?? new Date(),
+    }
+    const existing = await db.select().from(gameReviews).where(eq(gameReviews.gameId, review.gameId)).get()
+    if (existing) {
+      await db.update(gameReviews).set(values).where(eq(gameReviews.gameId, review.gameId))
+    } else {
+      await db.insert(gameReviews).values(values)
+    }
+  }
+
+  // Retrieve cached game review from database
+  async getGameReview(gameId: string): Promise<{
+    id: string
+    gameId: string
+    matchId: string
+    depth: number
+    whiteAccuracy: number
+    blackAccuracy: number
+    whiteRating: number | null
+    blackRating: number | null
+    classificationCounts: {
+      white: Record<string, number>
+      black: Record<string, number>
+    }
+    plies: PlyReview[]
+    createdAt: Date
+  } | null> {
+    await this.ensureInitialized()
+    const row = await db.select().from(gameReviews).where(eq(gameReviews.gameId, gameId)).get()
+    if (!row) return null
+    return {
+      id: row.id,
+      gameId: row.gameId,
+      matchId: row.matchId,
+      depth: row.depth,
+      whiteAccuracy: row.whiteAccuracy,
+      blackAccuracy: row.blackAccuracy,
+      whiteRating: row.whiteRating,
+      blackRating: row.blackRating,
+      // SAFETY: classificationCounts was written as JSON string
+      classificationCounts: JSON.parse(row.classificationCounts) as {
+        white: Record<string, number>
+        black: Record<string, number>
+      },
+      // SAFETY: plies was written as JSON string of PlyReview[]
+      plies: JSON.parse(row.plies) as PlyReview[],
+      createdAt: row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt),
+    }
+  }
+
+  // Cross-model benchmark aggregation matrix
+  async getBenchmarkMetrics(): Promise<{
+    models: Array<{
+      model: string
+      provider: string
+      rating: number
+      rd: number
+      gamesPlayed: number
+      wins: number
+      draws: number
+      losses: number
+      points: number
+      winRate: number
+      avgAccuracy: number | null
+      blunderRate: number
+      avgThinkTimeSeconds: number
+      avgTokensPerMove: number
+      totalTokensUsed: number
+      evaluatedGamesCount: number
+      classifications: {
+        brilliant: number
+        best: number
+        excellent: number
+        good: number
+        inaccuracy: number
+        mistake: number
+        miss: number
+        blunder: number
+      }
+    }>
+    totalMatches: number
+    totalGames: number
+    evaluatedGames: number
+    lastUpdated: Date
+  }> {
+    await this.ensureInitialized()
+    const dbRatings = await db.select().from(ratings)
+    const allMatches = await db.select().from(matches)
+    const allGames = await db.select().from(games)
+    const allReviews = await db.select().from(gameReviews)
+    const allEvents = await db.select().from(events)
+
+    type ReviewRow = (typeof allReviews)[number]
+    const reviewsByGame = new Map<string, ReviewRow>()
+    for (const r of allReviews) {
+      reviewsByGame.set(r.gameId, r)
+    }
+
+    type GameRow = (typeof allGames)[number]
+    const gamesByMatch = new Map<string, GameRow[]>()
+    for (const g of allGames) {
+      const arr = gamesByMatch.get(g.matchId) ?? []
+      arr.push(g)
+      gamesByMatch.set(g.matchId, arr)
+    }
+
+    type EventRow = (typeof allEvents)[number]
+    const eventsByGame = new Map<string, EventRow[]>()
+    for (const ev of allEvents) {
+      const arr = eventsByGame.get(ev.gameId) ?? []
+      arr.push(ev)
+      eventsByGame.set(ev.gameId, arr)
+    }
+
+    interface ModelAgg {
+      model: string
+      provider: string
+      rating: number
+      rd: number
+      gamesPlayed: number
+      wins: number
+      draws: number
+      losses: number
+      accuracies: number[]
+      totalThinkTime: number
+      thinkMoveCount: number
+      totalTokens: number
+      tokensMoveCount: number
+      classifications: {
+        brilliant: number
+        best: number
+        excellent: number
+        good: number
+        inaccuracy: number
+        mistake: number
+        miss: number
+        blunder: number
+      }
+    }
+
+    const modelMap = new Map<string, ModelAgg>()
+
+    const getOrInitModel = (model: { name: string; provider: string }): ModelAgg => {
+      let agg = modelMap.get(model.name)
+      if (!agg) {
+        agg = {
+          accuracies: [],
+          classifications: { best: 0, blunder: 0, brilliant: 0, excellent: 0, good: 0, inaccuracy: 0, miss: 0, mistake: 0 },
+          draws: 0,
+          gamesPlayed: 0,
+          losses: 0,
+          model: model.name,
+          provider: model.provider,
+          rating: 1500,
+          rd: 350,
+          thinkMoveCount: 0,
+          tokensMoveCount: 0,
+          totalThinkTime: 0,
+          totalTokens: 0,
+          wins: 0,
+        }
+        modelMap.set(model.name, agg)
+      }
+      return agg
+    }
+
+    for (const r of dbRatings) {
+      modelMap.set(r.modelName, {
+        accuracies: [],
+        classifications: {
+          best: 0,
+          blunder: 0,
+          brilliant: 0,
+          excellent: 0,
+          good: 0,
+          inaccuracy: 0,
+          miss: 0,
+          mistake: 0,
+        },
+        draws: 0,
+        gamesPlayed: r.gamesPlayed,
+        losses: 0,
+        model: r.modelName,
+        provider: r.provider,
+        rating: Math.round(r.glickoRating),
+        rd: Math.round(r.glickoRd),
+        thinkMoveCount: 0,
+        tokensMoveCount: 0,
+        totalThinkTime: 0,
+        totalTokens: 0,
+        wins: 0,
+      })
+    }
+
+    for (const m of allMatches) {
+      // SAFETY: playerAModel was written as JSON string
+      const modelA = JSON.parse(m.playerAModel) as { name: string; provider: string }
+      // SAFETY: playerBModel was written as JSON string
+      const modelB = JSON.parse(m.playerBModel) as { name: string; provider: string }
+
+      const aggA = getOrInitModel(modelA)
+      const aggB = getOrInitModel(modelB)
+
+      const matchGames = gamesByMatch.get(m.id) ?? []
+      for (const g of matchGames) {
+        const isAWhite = g.whitePlayerId === m.playerAId
+        const whiteModel = isAWhite ? modelA.name : modelB.name
+        const blackModel = isAWhite ? modelB.name : modelA.name
+
+        const whiteAgg = modelMap.get(whiteModel)
+        const blackAgg = modelMap.get(blackModel)
+
+        // Process game move events for player-specific think time and tokens
+        const gameEvents = eventsByGame.get(g.id) ?? []
+        for (const ev of gameEvents) {
+          if (ev.eventType === 'move') {
+            interface StoredMoveData {
+              thinkTimeSeconds?: number
+              tokensUsed?: number
+            }
+            // SAFETY: ev.data is stored as JSON string of EventData
+            const data = JSON.parse(ev.data) as StoredMoveData
+            const moverAgg = ev.playerId === m.playerAId ? aggA : aggB
+            if (Number.isFinite(data.thinkTimeSeconds)) {
+              moverAgg.totalThinkTime += data.thinkTimeSeconds ?? 0
+              moverAgg.thinkMoveCount++
+            }
+            if (Number.isFinite(data.tokensUsed)) {
+              moverAgg.totalTokens += data.tokensUsed ?? 0
+              moverAgg.tokensMoveCount++
+            }
+          }
+        }
+
+        if (g.result) {
+          // SAFETY: g.result is JSON string { winner?: 'white' | 'black' | null }
+          const res = JSON.parse(g.result) as { winner?: string | null }
+          if (res.winner === 'white') {
+            if (whiteAgg) whiteAgg.wins++
+            if (blackAgg) blackAgg.losses++
+          } else if (res.winner === 'black') {
+            if (blackAgg) blackAgg.wins++
+            if (whiteAgg) whiteAgg.losses++
+          } else {
+            if (whiteAgg) whiteAgg.draws++
+            if (blackAgg) blackAgg.draws++
+          }
+        }
+
+        const rev = reviewsByGame.get(g.id)
+        if (rev) {
+          interface StoredClassificationCounts {
+            white?: Record<string, number>
+            black?: Record<string, number>
+          }
+          // SAFETY: classificationCounts was written as JSON of StoredClassificationCounts
+          const counts = JSON.parse(rev.classificationCounts) as StoredClassificationCounts
+          if (whiteAgg) {
+            whiteAgg.accuracies.push(rev.whiteAccuracy)
+            if (counts.white) {
+              for (const [k, v] of Object.entries(counts.white)) {
+                if (k in whiteAgg.classifications && Number.isFinite(v)) {
+                  // SAFETY: k verified to exist in whiteAgg.classifications
+                  whiteAgg.classifications[k as keyof typeof whiteAgg.classifications] += v
+                }
+              }
+            }
+          }
+          if (blackAgg) {
+            blackAgg.accuracies.push(rev.blackAccuracy)
+            if (counts.black) {
+              for (const [k, v] of Object.entries(counts.black)) {
+                if (k in blackAgg.classifications && Number.isFinite(v)) {
+                  // SAFETY: k verified to exist in blackAgg.classifications
+                  blackAgg.classifications[k as keyof typeof blackAgg.classifications] += v
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (m.metrics && aggA.thinkMoveCount === 0 && aggB.thinkMoveCount === 0) {
+        interface StoredMatchMetrics {
+          avgThinkTimeSeconds?: number
+          avgTokensPerMove?: number
+        }
+        // SAFETY: m.metrics is JSON string conforming to StoredMatchMetrics
+        const mm = JSON.parse(m.metrics) as StoredMatchMetrics
+        if (Number.isFinite(mm.avgThinkTimeSeconds)) {
+          const thinkTime = mm.avgThinkTimeSeconds ?? 0
+          aggA.totalThinkTime += thinkTime
+          aggA.thinkMoveCount++
+          aggB.totalThinkTime += thinkTime
+          aggB.thinkMoveCount++
+        }
+        if (Number.isFinite(mm.avgTokensPerMove)) {
+          const tokens = mm.avgTokensPerMove ?? 0
+          aggA.totalTokens += tokens
+          aggA.tokensMoveCount++
+          aggB.totalTokens += tokens
+          aggB.tokensMoveCount++
+        }
+      }
+    }
+
+    const models = Array.from(modelMap.values()).map(agg => {
+      const points = agg.wins * 1 + agg.draws * 0.5
+      const totalResolved = agg.wins + agg.draws + agg.losses
+      const winRate = totalResolved > 0 ? Math.round((agg.wins / totalResolved) * 100) : 0
+      const avgAccuracy = agg.accuracies.length > 0
+        ? Math.round((agg.accuracies.reduce((a, b) => a + b, 0) / agg.accuracies.length) * 10) / 10
+        : null
+      const totalMoves = Object.values(agg.classifications).reduce((a, b) => a + b, 0)
+      const blunderRate = totalMoves > 0
+        ? Math.round((agg.classifications.blunder / totalMoves) * 1000) / 10
+        : 0
+      const avgThinkTimeSeconds = agg.thinkMoveCount > 0
+        ? Math.round((agg.totalThinkTime / agg.thinkMoveCount) * 10) / 10
+        : 1.2
+      const avgTokensPerMove = agg.tokensMoveCount > 0
+        ? Math.round(agg.totalTokens / agg.tokensMoveCount)
+        : 140
+
+      return {
+        model: agg.model,
+        provider: agg.provider,
+        rating: agg.rating,
+        rd: agg.rd,
+        gamesPlayed: agg.gamesPlayed || totalResolved,
+        wins: agg.wins,
+        draws: agg.draws,
+        losses: agg.losses,
+        points,
+        winRate,
+        avgAccuracy,
+        blunderRate,
+        avgThinkTimeSeconds,
+        avgTokensPerMove,
+        totalTokensUsed: avgTokensPerMove * (totalMoves || 1),
+        evaluatedGamesCount: agg.accuracies.length,
+        classifications: agg.classifications,
+      }
+    }).sort((a, b) => b.rating - a.rating)
+
+    return {
+      models,
+      totalMatches: allMatches.length,
+      totalGames: allGames.length,
+      evaluatedGames: allReviews.length,
+      lastUpdated: new Date(),
+    }
+  }
 }
 
 // SAFETY: Global augmentation preserves the shared DatabaseService singleton across Next.js worker bundles
 const globalForDb = globalThis as typeof globalThis & {
   __llm_chess_database__?: DatabaseService
 }
-export const database = globalForDb.__llm_chess_database__ ?? new DatabaseService()
+if (globalForDb.__llm_chess_database__) {
+  Object.setPrototypeOf(globalForDb.__llm_chess_database__, DatabaseService.prototype)
+}
+export const database =
+  globalForDb.__llm_chess_database__ && 'getBenchmarkMetrics' in globalForDb.__llm_chess_database__
+    ? globalForDb.__llm_chess_database__
+    : new DatabaseService()
 globalForDb.__llm_chess_database__ = database

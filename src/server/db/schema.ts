@@ -11,6 +11,7 @@ export const matches = sqliteTable('matches', {
   playerAModel: text('player_a_model').notNull(), // JSON string
   playerBId: text('player_b_id').notNull(),
   playerBModel: text('player_b_model').notNull(), // JSON string
+  metrics: text('metrics'), // JSON string of aggregate MatchMetrics
   startingPosition: text('starting_position').notNull().default('standard'), // standard | chess960
   status: text('status').notNull().default('pending'), // pending | active | completed
   timeControl: text('time_control').notNull().default('10+5'),
@@ -87,4 +88,18 @@ export const models = sqliteTable('models', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   provider: text('provider').notNull(),
+})
+
+export const gameReviews = sqliteTable('game_reviews', {
+  blackAccuracy: real('black_accuracy').notNull(),
+  blackRating: integer('black_rating'),
+  classificationCounts: text('classification_counts').notNull(), // JSON string { white: {...}, black: {...} }
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  depth: integer('depth').notNull().default(16),
+  gameId: text('game_id').notNull().unique().references(() => games.id),
+  id: text('id').primaryKey(),
+  matchId: text('match_id').notNull().references(() => matches.id),
+  plies: text('plies').notNull(), // JSON string PlyReview[]
+  whiteAccuracy: real('white_accuracy').notNull(),
+  whiteRating: integer('white_rating'),
 })

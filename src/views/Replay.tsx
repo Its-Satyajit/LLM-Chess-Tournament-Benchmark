@@ -1,11 +1,24 @@
 'use client'
 
-import { useReducer, useEffect, useMemo, useCallback } from 'react'
+import { useReducer, useEffect, useMemo, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Chess } from 'chess.js'
 import { getGameState, getMatch, type GameState, type Match } from '../lib/api'
 import ChessBoard from '../components/ChessBoard'
+import GameReviewCard, { type ReviewMode } from '../components/GameReviewCard'
+import EvalBar from '../components/EvalBar'
+import AdvantageGraph from '../components/AdvantageGraph'
+import { StockfishClient } from '../lib/stockfish/StockfishClient'
+import {
+  reviewGame,
+  getStoredGameReview,
+  type GameReviewReport,
+  type ReviewProgress,
+  type PlyReview,
+} from '../lib/gameReview/coordinator'
+import { MOVE_CLASSIFICATIONS } from '../lib/gameReview/metrics'
+import { useGameReviewQuery, saveGameReviewToDb, type CachedReviewResponse } from '../lib/queries'
 import { ArrowLeft, Film, Shield, SkipBack, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
@@ -76,10 +89,14 @@ function MoveButton({
   item,
   currentMove,
   onSelect,
+  plyReview,
+  mode,
 }: {
   item: MoveItem
   currentMove: number
   onSelect: (ply: number) => void
+  plyReview?: PlyReview
+  mode: ReviewMode
 }) {
   const handleClick = useCallback(() => {
     onSelect(item.ply)
@@ -87,11 +104,13 @@ function MoveButton({
 
   const isCurrent = item.ply === currentMove
   const isPast = item.ply < currentMove
+  const meta = plyReview ? MOVE_CLASSIFICATIONS[plyReview.classification] : null
+  const label = meta ? (mode === 'streamer' ? meta.streamer : meta.tournament) : null
 
   return (
     <button
       type="button"
-      className={`flex items-baseline gap-1.5 rounded px-2 py-1 font-mono text-xs transition ${
+      className={`flex items-center justify-between gap-1.5 rounded px-2 py-1 font-mono text-xs transition ${
         isCurrent
           ? 'bg-emerald-600 text-white font-bold shadow-sm'
           : isPast
@@ -102,10 +121,59 @@ function MoveButton({
       aria-label={`Jump to move ${item.ply}: ${item.move}`}
       aria-current={isCurrent ? 'true' : undefined}
     >
-      <span className="text-[10px] opacity-60 min-w-[1.2rem] text-right">{item.moveNumber}.</span>
-      <span>{item.move}</span>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[10px] opacity-60 min-w-[1.2rem] text-right">{item.moveNumber}.</span>
+        <span>{item.move}</span>
+      </div>
+
+      {plyReview && meta && (
+        <span
+          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold border ${meta.badgeBg} ${meta.badgeText}`}
+          title={`${meta.tournament}: ${meta.description}`}
+        >
+          <span>{label}</span>
+          <span className="opacity-80">
+            {plyReview.centipawns >= 0 ? '+' : ''}
+            {(plyReview.centipawns / 100).toFixed(1)}
+          </span>
+        </span>
+      )}
     </button>
   )
+}
+
+function parseCachedReview(data: CachedReviewResponse | null | undefined): GameReviewReport | null {
+  if (!data) return null
+  if (data.white && data.black) {
+    return {
+      analyzedAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : String(data.createdAt),
+      black: data.black,
+      depth: data.depth,
+      gameId: data.gameId,
+      matchId: data.matchId,
+      plies: data.plies,
+      white: data.white,
+    }
+  }
+  return {
+    analyzedAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : String(data.createdAt),
+    black: {
+      acpl: 0,
+      accuracy: data.blackAccuracy,
+      classificationCounts: data.classificationCounts.black,
+      estimatedRating: data.blackRating ?? 1500,
+    },
+    depth: data.depth,
+    gameId: data.gameId,
+    matchId: data.matchId,
+    plies: data.plies,
+    white: {
+      acpl: 0,
+      accuracy: data.whiteAccuracy,
+      classificationCounts: data.classificationCounts.white,
+      estimatedRating: data.whiteRating ?? 1500,
+    },
+  }
 }
 
 export default function Replay({ matchId: propMatchId, gameId: propGameId }: ReplayProps) {
@@ -125,6 +193,24 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
   })
 
   const { gameState, moves, currentMove, loading, error, matchInfo } = state
+
+  // Game Review state
+  const [reviewReport, setReviewReport] = useState<GameReviewReport | null>(() => {
+    if (matchId && gameId) {
+      return getStoredGameReview(matchId, gameId)
+    }
+    return null
+  })
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [reviewProgress, setReviewProgress] = useState<ReviewProgress | null>(null)
+  const [reviewMode, setReviewMode] = useState<ReviewMode>('tournament')
+  const [reviewDepth, setReviewDepth] = useState<number>(10)
+
+  // Query database for pre-evaluated review
+  const { data: cachedReviewData } = useGameReviewQuery(gameId ?? '')
+  const activeReviewReport = useMemo(() => {
+    return reviewReport ?? parseCachedReview(cachedReviewData)
+  }, [reviewReport, cachedReviewData])
 
   const setCurrentMove = useCallback((val: number | MoveIndexFn) => {
     dispatch({ moveIndex: val, type: 'SET_CURRENT_MOVE' })
@@ -157,7 +243,11 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
     window.location.reload()
   }, [])
 
-  // Parse moves list into pairs for display
+  const handleToggleMode = useCallback(() => {
+    setReviewMode((prev) => (prev === 'tournament' ? 'streamer' : 'tournament'))
+  }, [])
+
+  // Parse moves list into items for display
   const moveList = useMemo(
     () =>
       moves.map((move, i) => ({
@@ -228,6 +318,50 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
   }, [moves])
 
   const fen = fenHistory[currentMove] ?? fenHistory[fenHistory.length - 1] ?? ''
+
+  // Current ply review evaluation for EvalBar
+  const currentPlyReview = useMemo(() => {
+    if (!activeReviewReport || currentMove === 0) return null
+    return activeReviewReport.plies.find((p) => p.ply === currentMove) ?? null
+  }, [activeReviewReport, currentMove])
+
+  // Map plies by ply number for quick scoresheet lookup
+  const plyReviewsByPly = useMemo(() => {
+    if (!activeReviewReport) return new Map<number, PlyReview>()
+    const map = new Map<number, PlyReview>()
+    for (const ply of activeReviewReport.plies) {
+      map.set(ply.ply, ply)
+    }
+    return map
+  }, [activeReviewReport])
+
+  // Start Stockfish review handler
+  const handleStartReview = useCallback(async () => {
+    if (!matchId || !gameId || moves.length === 0 || isAnalyzing) return
+
+    setIsAnalyzing(true)
+    setReviewProgress({ currentPly: 0, percentage: 0, totalPlies: moves.length })
+
+    try {
+      const client = new StockfishClient()
+      const report = await reviewGame({
+        depth: reviewDepth,
+        gameId,
+        matchId,
+        moves,
+        onProgress: (p) => setReviewProgress(p),
+        stockfishClient: client,
+      })
+      client.terminate()
+      setReviewReport(report)
+      void saveGameReviewToDb(gameId, report)
+    } catch (err) {
+      console.error('Stockfish game review error:', err)
+    } finally {
+      setIsAnalyzing(false)
+      setReviewProgress(null)
+    }
+  }, [matchId, gameId, moves, reviewDepth, isAnalyzing])
 
   // ← / → step through moves; Home/End jump to start/latest.
   useEffect(() => {
@@ -301,10 +435,30 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        {/* Board & Transport Navigator */}
+        {/* Board, EvalBar, Transport Navigator & Advantage Graph */}
         <div className="lg:col-span-6 xl:col-span-5 space-y-3">
-          <div className="flex justify-center">
-            {fen ? <ChessBoard fen={fen} /> : <div className="board-empty"><Shield className="h-10 w-10 text-slate-500" /></div>}
+          {/* Chessboard with EvalBar */}
+          <div className="flex justify-center items-stretch gap-2.5">
+            {currentPlyReview ? (
+              <EvalBar centipawns={currentPlyReview.centipawns} />
+            ) : (
+              <div
+                className="w-7 rounded-md border border-[#242f42] bg-[#111620] opacity-40 flex items-center justify-center text-[10px] text-slate-500 font-mono"
+                title="Stockfish evaluation pending review"
+              >
+                --
+              </div>
+            )}
+
+            <div className="flex justify-center flex-1">
+              {fen ? (
+                <ChessBoard fen={fen} />
+              ) : (
+                <div className="board-empty">
+                  <Shield className="h-10 w-10 text-slate-500" />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Playback Controls Card */}
@@ -359,11 +513,38 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
               Keyboard: <kbd className="rounded bg-slate-800 px-1 py-0.5 font-mono">←</kbd> <kbd className="rounded bg-slate-800 px-1 py-0.5 font-mono">→</kbd> or <kbd className="rounded bg-slate-800 px-1 py-0.5 font-mono">Home</kbd> / <kbd className="rounded bg-slate-800 px-1 py-0.5 font-mono">End</kbd>
             </p>
           </div>
+
+          {/* Advantage Timeline Graph */}
+          {activeReviewReport && activeReviewReport.plies.length > 0 && (
+            <AdvantageGraph
+              plies={activeReviewReport.plies}
+              currentPly={currentMove}
+              onSelectPly={handleSelectPly}
+            />
+          )}
         </div>
 
-        {/* Moves Scoresheet & Game Info */}
+        {/* Game Review Card, Telemetry & Scoresheet */}
         <div className="lg:col-span-6 xl:col-span-7 space-y-3">
-          {/* Game Info Card */}
+          {/* Stockfish Game Review Card */}
+          <GameReviewCard
+            report={activeReviewReport}
+            isAnalyzing={isAnalyzing}
+            progress={reviewProgress}
+            onStartReview={handleStartReview}
+            mode={reviewMode}
+            onToggleMode={handleToggleMode}
+            depth={reviewDepth}
+            onChangeDepth={setReviewDepth}
+            whitePlayerName={game?.whitePlayerId ?? matchInfo?.playerAId ?? 'White'}
+            blackPlayerName={
+              game?.whitePlayerId === matchInfo?.playerAId
+                ? matchInfo?.playerBId ?? 'Black'
+                : matchInfo?.playerAId ?? 'Black'
+            }
+          />
+
+          {/* Game Telemetry Card */}
           <div className="rounded-xl border border-[#242f42] bg-[#161d2a] p-3.5 shadow-md">
             <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
               Game Telemetry
@@ -408,6 +589,8 @@ export default function Replay({ matchId: propMatchId, gameId: propGameId }: Rep
                     item={item}
                     currentMove={currentMove}
                     onSelect={handleSelectPly}
+                    plyReview={plyReviewsByPly.get(item.ply)}
+                    mode={reviewMode}
                   />
                 ))}
               </div>

@@ -2,17 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Swords, Trophy, Settings, Radio, History as HistoryIcon } from 'lucide-react'
+import { Swords, Trophy, Settings, Radio, History as HistoryIcon, BarChart3 } from 'lucide-react'
+
+const NAVIGATION_LINKS = [
+  { href: '/', icon: Radio, label: 'Arena' },
+  { href: '/history', icon: HistoryIcon, label: 'History' },
+  { href: '/benchmark', icon: BarChart3, label: 'Benchmark' },
+  { href: '/dashboard', icon: Trophy, label: 'Leaderboard' },
+  { href: '/admin', icon: Settings, label: 'Admin' },
+] as const
 
 export default function Navigation() {
   const pathname = usePathname()
-
-  const links = [
-    { href: '/', icon: Radio, label: 'Arena' },
-    { href: '/history', icon: HistoryIcon, label: 'History' },
-    { href: '/dashboard', icon: Trophy, label: 'Leaderboard' },
-    { href: '/admin', icon: Settings, label: 'Admin' },
-  ]
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-[#242f42] bg-[#111620]/90 backdrop-blur-md">
@@ -33,7 +34,7 @@ export default function Navigation() {
         </div>
 
         <nav aria-label="Global" className="flex items-center gap-1 sm:gap-2">
-          {links.map(({ href, icon: Icon, label }) => {
+          {NAVIGATION_LINKS.map(({ href, icon: Icon, label }) => {
             const isActive = pathname === href
             return (
               <Link

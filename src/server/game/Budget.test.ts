@@ -55,7 +55,7 @@ describe('Budget Tracking', () => {
       expect(result).toBe(false)
     })
 
-    it('returns false when per-game limit exceeded and forfeits', () => {
+    it('returns false when per-game limit exceeded without forfeiting the game', () => {
       const engine = new MatchEngine()
       const match = createTestMatch(engine)
       const game = match.games[0]
@@ -66,14 +66,32 @@ describe('Budget Tracking', () => {
         engine.trackApiCall(match.id, game.id, match.playerAId)
       }
 
-      // Game limit reached — next call forfeits
+      // Game limit reached — next call returns false but does NOT forfeit
       engine.resetTurnBudget(game.id, 'white')
       const result = engine.trackApiCall(match.id, game.id, match.playerAId)
       expect(result).toBe(false)
 
-      // Original game should be completed
-      expect(game.status).toBe('completed')
-      expect(game.result?.reason).toBe('api_limit')
+      // Game remains active and not completed on api_limit
+      expect(game.status).toBe('active')
+      expect(game.result).toBeNull()
+    })
+
+    it('rejects makeMove when game API limit reached without forfeiting the game', () => {
+      const engine = new MatchEngine()
+      const match = createTestMatch(engine)
+      const game = match.games[0]
+
+      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_GAME; i++) {
+        engine.resetTurnBudget(game.id, 'white')
+        engine.trackApiCall(match.id, game.id, match.playerAId)
+      }
+
+      engine.resetTurnBudget(game.id, 'white')
+      const moveResult = engine.makeMove(match.id, game.id, match.playerAId, 'e4')
+      expect(moveResult.accepted).toBe(false)
+      expect(moveResult.error).toBe('API_LIMIT')
+      expect(game.status).toBe('active')
+      expect(game.result).toBeNull()
     })
 
     it('resets turn budget correctly', () => {
