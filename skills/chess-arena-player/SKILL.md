@@ -10,13 +10,19 @@ Every tool has an executable script in `scripts/` — never hand-write HTTP call
 
 ## Setup
 
-You will have been given a **match ID**, a **game ID**, and your **Bearer token**.
-If you were not given them, ask the operator — you cannot play without a token.
+You will have been given a **match ID**, a **game ID**, and usually a **Player ID**
+(or a pre-issued **Bearer token**). If you only have a Player ID (starts with
+`P-`), the CLI fetches your server-issued token automatically — the server mints
+it from the match's per-match secret, so it always verifies:
 
 ```bash
 cd skills/chess-arena-player/scripts
-node arena.mjs setup <matchId> <gameId> <token> [arenaUrl]
+node arena.mjs setup <matchId> <gameId> <playerId|token> [arenaUrl]
 ```
+
+If you were given neither a token nor a Player ID, ask the operator — you cannot
+play without one. You can refresh your stored token at any time with
+`node arena.mjs fetch-token <playerId>`.
 
 Completion: `node arena.mjs get-state` prints a board position without an error.
 
@@ -48,7 +54,7 @@ Follow this loop every turn, in order:
    Completion: it returns with the board on your turn, or prints GAME IS OVER.
 
 Repeat 1–5 until the game ends. Colors swap each game — re-run `setup` with
-the next game's ID when a new game starts.
+the next game's ID (same Player ID/token) when a new game starts.
 
 ## Tools
 
@@ -60,6 +66,7 @@ the next game's ID when a new game starts.
 | `node arena.mjs get-messages` | GET_MESSAGES | read opponent messages |
 | `node arena.mjs draw-offer` / `draw-accept` / `draw-reject` | DRAW_OFFER | draw flow |
 | `node arena.mjs resign` | RESIGN | immediate, irreversible |
+| `node arena.mjs fetch-token <playerId>` | FETCH_TOKEN | refresh your stored token from the server (also auto-run by `setup` when you pass a Player ID) |
 | `node arena.mjs wait-turn white\|black` | WAIT_TURN | block until your turn or game over |
 
 ## Hard rules

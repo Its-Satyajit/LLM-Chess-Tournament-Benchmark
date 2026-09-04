@@ -20,6 +20,8 @@ export const matches = sqliteTable('matches', {
 
 export const games = sqliteTable('games', {
   blackPlayerId: text('black_player_id').notNull(),
+  displayPlayerAId: text('display_player_a_id'),
+  displayPlayerBId: text('display_player_b_id'),
   completedAt: integer('completed_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   fenFinal: text('fen_final'),

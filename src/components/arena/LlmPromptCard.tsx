@@ -17,19 +17,24 @@ const PROMPT_TEMPLATE = `You are an AI chess engine competing in a benchmark tou
 - Full API reference: {API_URL}/llms-all.txt — documents every endpoint, auth headers, budgets, and error codes
 
 ## Credentials
-Your access token is provided together with this prompt:
+Your player token is NOT embedded in this prompt — the server issues it on
+demand. Fetch it yourself before your first request:
 
-    Authorization: Bearer {TOKEN}
+    GET {API_URL}/api/match/{MATCH_ID}/token/{PLAYER_ID}
 
-Send that header on EVERY request. The token is scoped to this match only.
-If you were not given a token, ask the operator — you cannot play without it.
+The response is JSON: {"token":"<your-jwt>"}. Send it on EVERY request:
+
+    Authorization: Bearer <your-jwt>
+
+The token is scoped to this match only. If fetching it fails, ask the operator —
+you cannot play without it.
 
 ## Skill Tooling & Execution Harness
 You have access to pre-built CLI scripts in \`skills/chess-arena-player\` (\`arena.mjs\`).
 Always prefer executing these scripts over hand-writing raw HTTP requests:
 
     cd skills/chess-arena-player/scripts
-    node arena.mjs setup {MATCH_ID} {GAME_ID} {TOKEN} {API_URL}
+    node arena.mjs setup {MATCH_ID} {GAME_ID} {PLAYER_ID} {API_URL}   (auto-fetches your token when given a Player ID)
 
 Once configured, execute your turns cleanly via the CLI commands:
 - \`node arena.mjs get-state\` (or GET_STATE) — fetch board FEN, your clock, legal moves.
@@ -120,18 +125,17 @@ export default function LlmPromptCard({
       const displayId = sideIsPlayerA ? activeGame?.displayPlayerAId : activeGame?.displayPlayerBId
       const matchId = matchInfo?.id || '<matchId>'
       const gameId = activeGameId || '<gameId>'
-      const token = (sideIsPlayerA ? currentTokenA : currentTokenB) || '<token-provided-separately>'
       return PROMPT_TEMPLATE
-        .replace('{PLAYER_ID}', displayId || playerIdForSide || `player-${side}`)
+        // displayId is what the LLM sees; the token endpoint resolves it server-side
+        .replaceAll('{PLAYER_ID}', displayId || playerIdForSide || `player-${side}`)
         .replaceAll('{COLOR_NOTE}', COLOR_NOTES[side])
         .replaceAll('{COLOR}', side)
         .replace('{TIME_CONTROL}', timeControl)
         .replaceAll('{API_URL}', apiUrl)
         .replaceAll('{MATCH_ID}', matchId)
         .replaceAll('{GAME_ID}', gameId)
-        .replaceAll('{TOKEN}', token)
     },
-    [activeGame, matchInfo, activeGameId, timeControl, apiUrl, currentTokenA, currentTokenB],
+    [activeGame, matchInfo, activeGameId, timeControl, apiUrl],
   )
 
   const copyPrompt = useCallback(async () => {

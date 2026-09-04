@@ -153,6 +153,36 @@ describe('DatabaseService', () => {
     }
   })
 
+  it('onlyCompleted hides matches whose 4 games are not all finished', async () => {
+    const config = (): MatchConfig => ({
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: 'latest' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: 'latest' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    })
+
+    // A fresh match (game 1 active, rest pending) must be hidden.
+    const running = engine.createMatch(config())
+    await db.saveMatch(running)
+    expect((await db.listMatchesWithGames({ onlyCompleted: true })).some(r => r.match.id === running.id)).toBe(false)
+
+    // A match whose 4 games are all completed becomes visible.
+    const done = engine.createMatch(config())
+    for (const g of done.games) {
+      g.status = 'completed'
+      g.result = { reason: 'draw_offer', winner: null }
+    }
+    await db.saveMatch(done)
+    const rows = await db.listMatchesWithGames({ onlyCompleted: true })
+    const found = rows.find(r => r.match.id === done.id)
+    expect(found).toBeDefined()
+    expect(found?.games.every(g => g.status === 'completed')).toBe(true)
+
+    // The default (no filter) still returns in-progress matches for other surfaces.
+    expect((await db.listMatchesWithGames()).some(r => r.match.id === running.id)).toBe(true)
+  })
+
   it('should save and load game reviews', async () => {
     const config: MatchConfig = {
       boardMode: 'assisted',

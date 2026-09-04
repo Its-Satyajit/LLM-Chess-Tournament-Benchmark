@@ -106,6 +106,8 @@ export class DatabaseService {
       gameNumber: game.gameNumber,
       whitePlayerId: game.whitePlayerId,
       blackPlayerId: game.blackPlayerId,
+      displayPlayerAId: game.displayPlayerAId,
+      displayPlayerBId: game.displayPlayerBId,
       status: game.status,
       result: game.result ? JSON.stringify(game.result) : null,
       resultReason: game.result?.reason || null,
@@ -298,7 +300,8 @@ export class DatabaseService {
   // List all non-private matches with their games, newest-first. Source of
   // truth for the /history page — reads straight from Turso so the listing
   // survives engine restarts and reflects rows added out-of-band.
-  async listMatchesWithGames(): Promise<{
+  // Pass onlyCompleted:true to hide matches whose 4 games aren't all finished.
+  async listMatchesWithGames(opts: { onlyCompleted?: boolean } = {}): Promise<{
     match: {
       id: string
       status: 'pending' | 'active' | 'completed'
@@ -371,6 +374,11 @@ export class DatabaseService {
         },
       })
     }
+    if (opts.onlyCompleted) {
+      return result.filter(
+        (r) => r.games.length === 4 && r.games.every((g) => g.status === 'completed'),
+      )
+    }
     return result
   }
 
@@ -407,9 +415,10 @@ export class DatabaseService {
       result: g.result ? JSON.parse(g.result) : null,
       // SAFETY: g.status is stored as a string and matches GameStatus union
       status: g.status as 'pending' | 'active' | 'completed',
-      // Story 33: Generate fresh display IDs per game (not persisted, regenerated on load)
-      displayPlayerAId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-      displayPlayerBId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      // Story 33: fresh per-game display IDs. Persisted so an LLM's prompt id
+      // stays resolvable across reloads; legacy rows (null) get a fresh id.
+      displayPlayerAId: g.displayPlayerAId ?? `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      displayPlayerBId: g.displayPlayerBId ?? `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       tokensThisGame: { black: 0, white: 0 },
       tokensThisMove: { black: 0, white: 0 },
       whitePlayerId: g.whitePlayerId,

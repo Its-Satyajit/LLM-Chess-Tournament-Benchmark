@@ -42,17 +42,20 @@ describe('Server Player Prompt (v2.1)', () => {
     const formatted = formatPrompt({
       apiUrl: 'http://localhost:3001',
       color: 'white',
+      gameId: 'GAME-1',
+      matchId: 'MATCH-1',
       playerId: 'P-TEST123',
       timeControl: '10+5',
-      token: 'jwt-token-xyz',
     })
 
     expect(formatted).toContain('Player ID: P-TEST123')
     expect(formatted).toContain('white')
     expect(formatted).toContain('10+5')
     expect(formatted).toContain('http://localhost:3001')
-    expect(formatted).toContain('Authorization: Bearer jwt-token-xyz')
+    // Token is self-served from the DB token endpoint, never embedded
+    expect(formatted).toContain('http://localhost:3001/api/match/MATCH-1/token/P-TEST123')
     expect(formatted).not.toContain('{PLAYER_ID}')
     expect(formatted).not.toContain('{TOKEN}')
+    expect(formatted).not.toContain('Bearer jwt-token-xyz')
   })
 })

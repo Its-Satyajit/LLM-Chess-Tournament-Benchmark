@@ -89,9 +89,10 @@ function withClock<T extends object>(
 const matchRoutes = new Elysia({ prefix: '/api/match' })
   // --- PUBLIC: List all non-private matches (history page) — reads from Turso
   // so the listing survives engine restarts and shows rows the in-memory
-  // engine map hasn't loaded yet.
+  // engine map hasn't loaded yet. Only fully-completed matches (all 4 games
+  // finished) are shown so the history doesn't list in-progress matches.
   .get('/', async () => {
-    const rows = await database.listMatchesWithGames()
+    const rows = await database.listMatchesWithGames({ onlyCompleted: true })
     return {
       matches: rows.map(({ match, games: matchGames }) => ({
         completedAt: match.completedAt,
@@ -173,9 +174,9 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   })
 
   // --- PUBLIC: Mint valid player token(s) for a match from its DB per-match
-  // secret. Used by the Arena/Admin UIs so the Bearer token injected into an
-  // LLM prompt is always the server-issued token, never an externally-minted
-  // one that fails verification.
+  // secret. Used by the Arena/Admin UIs and by LLM players (who fetch their own
+  // token) so the Bearer token is always the server-issued token, never an
+  // externally-minted one that fails verification.
   .get('/:matchId/tokens', async ({ params }) => {
     await database.ensureMatchLoaded(params.matchId)
     const match = engine.getMatch(params.matchId)
@@ -188,6 +189,29 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       playerBId: match.playerBId,
       playerBToken: generatePlayerToken(match.playerBId, match.id, match.secret ?? undefined),
     }
+  })
+
+  // --- PUBLIC: Mint one player's token. Accepts either the real participant id
+  // or the per-game display id shown in an LLM prompt (Story 33), which the
+  // engine resolves to the participant id server-side.
+  .get('/:matchId/token/:playerId', async ({ params }) => {
+    await database.ensureMatchLoaded(params.matchId)
+    const match = engine.getMatch(params.matchId)
+    if (!match) {
+      return status(404, { error: 'Match not found' })
+    }
+    const realId =
+      params.playerId === match.playerAId || params.playerId === match.playerBId
+        ? params.playerId
+        : match.games.some((g) => g.displayPlayerAId === params.playerId)
+          ? match.playerAId
+          : match.games.some((g) => g.displayPlayerBId === params.playerId)
+            ? match.playerBId
+            : null
+    if (!realId) {
+      return status(403, { error: 'Player is not a participant of this match' })
+    }
+    return { token: generatePlayerToken(realId, match.id, match.secret ?? undefined) }
   })
 
   // --- PUBLIC: Get match info (spectators) ---

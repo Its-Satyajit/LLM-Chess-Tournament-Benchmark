@@ -36,7 +36,7 @@ if (local) {
   mkdirSync(dirname(target), { recursive: true })
   cpSync(SKILL_DIR, target, { recursive: true })
   console.log(`Copied skill to ${target}`)
-  console.log('Next: node <target>/scripts/arena.mjs setup <matchId> <gameId> <token>')
+  console.log('Next: node <target>/scripts/arena.mjs setup <matchId> <gameId> <token|playerId>')
   process.exit(0)
 }
 
@@ -50,4 +50,4 @@ if (!ok) {
 }
 
 console.log('\nNext: cd into the installed skill and run')
-console.log('  node scripts/arena.mjs setup <matchId> <gameId> <token>')
+console.log('  node scripts/arena.mjs setup <matchId> <gameId> <token|playerId>')

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // LLM Chess Arena — player CLI. Cross-platform (Node 18+, no dependencies).
 //
-// Setup once:
-//   node arena.mjs setup <matchId> <gameId> <token> [arenaUrl]
+// Setup once (Player ID auto-fetches your token from the server):
+//   node arena.mjs setup <matchId> <gameId> <token|playerId> [arenaUrl]
 // Then:
 //   node arena.mjs get-state
 //   node arena.mjs make-move "Nf3"
@@ -83,12 +83,57 @@ const [cmd, ...args] = process.argv.slice(2)
 
 switch (cmd) {
   case 'setup': {
-    const [matchId, gameId, token, arenaUrl] = args
-    if (!matchId || !gameId || !token) {
-      console.error('Usage: node arena.mjs setup <matchId> <gameId> <token> [arenaUrl]')
+    const [matchId, gameId, tokenOrPlayerId, arenaUrl] = args
+    if (!matchId || !gameId || !tokenOrPlayerId) {
+      console.error('Usage: node arena.mjs setup <matchId> <gameId> <token|playerId> [arenaUrl]')
       process.exit(1)
     }
-    saveConfig({ matchId, gameId, token, ...(arenaUrl ? { arenaUrl } : {}) })
+    // Player IDs start with P-. When given one, fetch the server-issued token
+    // from /api/match/{matchId}/token/{playerId} so the stored credential is
+    // always valid (no externally-minted token needed).
+    const isPlayerId = /^P-/.test(tokenOrPlayerId)
+    let token = tokenOrPlayerId
+    if (isPlayerId) {
+      const base = arenaUrl || 'https://chess-arena-llm.vercel.app'
+      const res = await fetch(`${base}/api/match/${matchId}/token/${encodeURIComponent(tokenOrPlayerId)}`)
+      const body = await res.json().catch(() => ({}))
+      if (!body?.token) {
+        console.error(`Could not fetch token for player ${tokenOrPlayerId}:`, JSON.stringify(body))
+        process.exit(1)
+      }
+      token = body.token
+    }
+    saveConfig({
+      matchId,
+      gameId,
+      token,
+      ...(arenaUrl ? { arenaUrl } : {}),
+      ...(isPlayerId ? { playerId: tokenOrPlayerId } : {}),
+    })
+    console.log(
+      isPlayerId
+        ? `Fetched token for ${tokenOrPlayerId} and saved ${CONFIG_FILE}`
+        : `Saved ${CONFIG_FILE}`,
+    )
+    break
+  }
+
+  case 'fetch-token': {
+    const playerId = args[0]
+    if (!playerId) {
+      console.error('Usage: node arena.mjs fetch-token <playerId>')
+      process.exit(1)
+    }
+    const { matchId, arenaUrl } = requireConfig()
+    const base = arenaUrl || 'https://chess-arena-llm.vercel.app'
+    const res = await fetch(`${base}/api/match/${matchId}/token/${encodeURIComponent(playerId)}`)
+    const body = await res.json().catch(() => ({}))
+    if (!body?.token) {
+      console.error('Could not fetch token:', JSON.stringify(body))
+      process.exit(1)
+    }
+    saveConfig({ token: body.token, playerId })
+    console.log(`Saved fresh token for ${playerId}`)
     break
   }
 
@@ -156,7 +201,7 @@ switch (cmd) {
   default:
     console.log(`LLM Chess Arena player CLI
 
-Setup:  node arena.mjs setup <matchId> <gameId> <token> [arenaUrl]
+Setup:  node arena.mjs setup <matchId> <gameId> <token|playerId> [arenaUrl]
 
 Tools:
   get-state                     board, turn, your clock, legal moves
@@ -165,5 +210,6 @@ Tools:
   get-messages                  read opponent messages
   draw-offer | draw-accept | draw-reject
   resign                        irreversible
+  fetch-token <playerId>        refresh stored token from the server
   wait-turn white|black         block until it is your turn`)
 }
