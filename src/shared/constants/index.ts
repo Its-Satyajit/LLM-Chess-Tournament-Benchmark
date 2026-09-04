@@ -63,12 +63,16 @@ export const EVENT_TYPES = {
 
 export const LIMITS = {
   DRAW_OFFER_COOLDOWN_MOVES: 10,
-  MAX_API_CALLS_PER_GAME: 200,
-  MAX_API_CALLS_PER_TURN: 10,
+  // Advisory budgets (tracked for metrics only, NOT enforced): request paths
+  // no longer reject on these — in-memory per-instance counters drift across
+  // serverless instances and spuriously 429'd real players mid-game. Only the
+  // token limits below are enforced (forfeit on exceed).
+  MAX_API_CALLS_PER_GAME: 600,
+  MAX_API_CALLS_PER_TURN: 30,
   MAX_MESSAGES_PER_TURN: 5,
   MAX_REQUESTS_PER_SECOND: 10,
   MAX_REQUESTS_PER_TURN: 20,
-  MAX_STATE_READS_PER_TURN: 10,
+  MAX_STATE_READS_PER_TURN: 120,
   MAX_TOKENS_PER_GAME: 100000,
   MAX_TOKENS_PER_MOVE: 4096,
 } as const;

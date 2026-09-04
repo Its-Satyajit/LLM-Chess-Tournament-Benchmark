@@ -45,21 +45,67 @@ export class DatabaseService {
   }
 
   // Ensure the in-memory engine has this match loaded, lazily reading it from
-  // SQLite when it isn't (serverless cold start / multi-instance drift).
+  // SQLite when it isn't (serverless cold start / multi-instance drift). When
+  // the match is already loaded it cheaply verifies the engine copy isn't
+  // stale: another serverless instance may have persisted moves or game
+  // transitions this instance hasn't seen. DB-ahead state triggers a fresh
+  // reload so a warm instance never serves — or rejects moves against — an
+  // outdated board (e.g. NOT_YOUR_TURN after the opponent already moved).
   async ensureMatchLoaded(matchId: string): Promise<Match | null> {
     await this.ensureInitialized()
-    if (this.engine.getMatch(matchId)) return this.engine.getMatch(matchId)!
+    const existing = this.engine.getMatch(matchId)
+    if (existing) {
+      if (await this.isEngineCopyStale(matchId, existing)) {
+        return await this.reloadMatch(matchId)
+      }
+      return existing
+    }
+    return this.loadMatchOnce(matchId)
+  }
+
+  // Load a match from SQLite into the engine, deduping concurrent loads of the
+  // same match (used by both the cold-start path and stale-copy reloads).
+  private loadMatchOnce(matchId: string): Promise<Match | null> {
     let inFlight = this.loading.get(matchId)
     if (!inFlight) {
       inFlight = this.loadMatch(matchId)
       this.loading.set(matchId, inFlight)
-      try {
-        return await inFlight
-      } finally {
-        this.loading.delete(matchId)
-      }
+      void inFlight.finally(() => {
+        if (this.loading.get(matchId) === inFlight) {
+          this.loading.delete(matchId)
+        }
+      })
     }
     return inFlight
+  }
+
+  // True when the database has persisted game progress this instance's engine
+  // copy hasn't seen (a move or status change written by another instance).
+  // Only DB-ahead states count — engine-ahead states are ignored because they
+  // mean this instance hasn't finished persisting its own writes yet.
+  private async isEngineCopyStale(matchId: string, loaded: Match): Promise<boolean> {
+    const dbGames = await db.select().from(games).where(eq(games.matchId, matchId))
+    if (dbGames.length === 0) return false
+    const engineById = new Map(loaded.games.map(g => [g.id, g]))
+    for (const row of dbGames) {
+      const eng = engineById.get(row.id)
+      if (!eng) return true // DB has a game this instance never loaded
+      const dbIsAhead =
+        row.moveCount > eng.moveCount ||
+        (row.status === 'completed' && eng.status !== 'completed')
+      if (dbIsAhead) return true
+    }
+    return false
+  }
+
+  // Drop the stale in-memory copy and reconstitute it from SQLite. Returns the
+  // fresh Match, or the previous copy if the DB read comes up empty.
+  private async reloadMatch(matchId: string): Promise<Match | null> {
+    const fallback = this.engine.getMatch(matchId) ?? null
+    this.engine.removeMatch(matchId)
+    this.savedEventCounts.delete(matchId)
+    const fresh = await this.loadMatchOnce(matchId)
+    return fresh ?? fallback
   }
 
   // Persist a match to database

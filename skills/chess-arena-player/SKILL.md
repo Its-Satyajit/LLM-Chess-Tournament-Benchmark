@@ -71,9 +71,10 @@ the next game's ID (same Player ID/token) when a new game starts.
 
 ## Hard rules
 
-- **Budgets forfeit the game on exceed**: 10 API calls/turn, 200/game,
-  4096 tokens/move, 100k tokens/game. An optimal turn is `get-state` +
-  `make-move` + optional `send-message` — 2 to 3 calls total. Do not spam.
+- **Token budgets forfeit the game on exceed**: 4096 tokens/move, 100k
+  tokens/game. API-call and request-rate limits are NOT enforced (removed
+  after spurious serverless 429s interrupted live games). An optimal turn is
+  `get-state` + `make-move` + optional `send-message` — 2 to 3 calls total.
 - **Your clock runs during your requests.** Flag fall (0s) loses. Play promptly.
 - **Never assume the board.** Always `get-state` before moving.
 - Draw offers require acceptance; check `get-state` for pending offers.

@@ -329,4 +329,67 @@ describe('DatabaseService', () => {
     expect(again?.id).toBe(match.id)
     expect(freshEngine.getEvents(match.id).filter(e => e.eventType === 'move').length).toBe(1)
   })
+
+  it('ensureMatchLoaded reloads a warm engine copy that is stale vs the database', async () => {
+    const config: MatchConfig = {
+      boardMode: 'assisted',
+      playerAModel: { maxOutputTokens: 4096, name: 'gpt-4o', provider: 'openai', temperature: 0.7, version: 'latest' },
+      playerBModel: { maxOutputTokens: 4096, name: 'claude-sonnet-4-20250514', provider: 'anthropic', temperature: 0.7, version: 'latest' },
+      startingPosition: 'standard',
+      timeControl: '10+5',
+    }
+
+    // Instance A creates the match, plays 1.e4, and persists (all 4 games pre-created)
+    const svcA = new DatabaseService()
+    const engineA = svcA.getEngine()
+    const match = engineA.createMatch(config)
+    const game = match.games[0]
+    await svcA.saveMatch(match)
+    const firstMove = engineA.makeMove(match.id, game.id, match.playerAId, 'e4')
+    expect(firstMove.accepted).toBe(true)
+    const gameAfterFirst = engineA.getCurrentGame(match.id)
+    if (gameAfterFirst) await svcA.saveGame(gameAfterFirst)
+    await svcA.saveNewEvents(match.id)
+
+    // Instance B (warm, separate engine, same DB) loads the match after 1.e4,
+    // so its engine copy shows moveCount 1 and black to move
+    const svcB = new DatabaseService()
+    const engineB = svcB.getEngine()
+    await svcB.ensureMatchLoaded(match.id)
+    expect(engineB.getMatch(match.id)?.games[0].moveCount).toBe(1)
+    expect(engineB.getGameState(match.id, game.id).turn).toBe('black')
+
+    // Instance A accepts and persists black's reply (1...c5)
+    const blackMove = engineA.makeMove(match.id, game.id, match.playerBId, 'c5')
+    expect(blackMove.accepted).toBe(true)
+    const activeGameA = engineA.getCurrentGame(match.id)
+    if (activeGameA) await svcA.saveGame(activeGameA)
+    await svcA.saveNewEvents(match.id)
+
+    // Instance B's copy is now stale: its engine still thinks black is to move
+    // (moveCount 1), which would wrongly reject white's Nf3 with NOT_YOUR_TURN
+    expect(engineB.getMatch(match.id)?.games[0].moveCount).toBe(1)
+    expect(engineB.getGameState(match.id, game.id).turn).toBe('black')
+    const staleReject = engineB.makeMove(match.id, game.id, match.playerAId, 'Nf3')
+    expect(staleReject.accepted).toBe(false)
+
+    // ensureMatchLoaded detects DB-ahead state and reloads the stale copy
+    const reloaded = await svcB.ensureMatchLoaded(match.id)
+    expect(reloaded?.games[0].moveCount).toBe(2)
+    expect(engineB.getMatch(match.id)?.games[0].moveCount).toBe(2)
+    expect(engineB.getGameState(match.id, game.id).turn).toBe('white')
+    expect(engineB.getGameState(match.id, game.id).legalMoves).toContain('Nf3')
+
+    // No duplicate events after reload: e4 + c5 restored exactly once
+    expect(engineB.getEvents(match.id).filter(e => e.eventType === 'move').length).toBe(2)
+
+    // Now the previously-rejected move is accepted on the refreshed instance
+    const nowAccepted = engineB.makeMove(match.id, game.id, match.playerAId, 'Nf3')
+    expect(nowAccepted.accepted).toBe(true)
+
+    // A second ensure on the now-current copy doesn't reload or duplicate
+    await svcB.ensureMatchLoaded(match.id)
+    expect(engineB.getMatch(match.id)?.games[0].moveCount).toBe(3)
+    expect(engineB.getEvents(match.id).filter(e => e.eventType === 'move').length).toBe(3)
+  })
 })
