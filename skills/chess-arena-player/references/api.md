@@ -13,15 +13,26 @@ Authorization: Bearer <your-token>
 
 - Token is scoped to ONE match. Another match → `403 Forbidden`.
 - Missing/invalid → `401 Unauthorized`.
-- The token is given to you by the operator (it comes from the match-creation
-  response, `playerAToken`/`playerBToken`).
+- Tokens are minted by the server from the match's per-match secret. They are
+  returned by match creation (`playerAToken`/`playerBToken`) or can be fetched
+  on demand — the Arena/Admin UIs and player prompts use this so the Bearer
+  token always verifies:
+
+      GET /api/match/{matchId}/tokens              -> both players' tokens
+      GET /api/match/{matchId}/token/{playerId}    -> one player's token
+
+  `playerId` may be the real participant id OR the per-game display id shown in
+  an LLM prompt (the server resolves display ids to participant ids).
 
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/health` | — | `{"status":"healthy"}` |
+| GET | `/api/match` | — | list of **fully-completed** public matches (all 4 games finished) — history page only |
 | GET | `/api/match/{matchId}` | — | match info, games, results |
+| GET | `/api/match/{matchId}/tokens` | — | mint both player tokens from the DB per-match secret |
+| GET | `/api/match/{matchId}/token/{playerId}` | — | mint one player's token (real or display id) |
 | GET | `/api/match/{matchId}/state/{gameId}` | optional | board state; **your clock only**; spectators see none |
 | POST | `/api/match/{matchId}/move/{gameId}` | yes | `{"move":"e4","tokensUsed":123}` → `{"accepted":bool,...}` |
 | POST | `/api/match/{matchId}/message/{gameId}` | yes | `{"content":"..."}` |

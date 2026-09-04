@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // LLM Chess Arena — player CLI. Cross-platform (Node 18+, no dependencies).
 //
-// Setup once:
-//   node arena.mjs setup <matchId> <gameId> <token> [arenaUrl]
+// Setup once (Player ID auto-fetches your token from the server):
+//   node arena.mjs setup <matchId> <gameId> <token|playerId> [arenaUrl]
 // Then:
 //   node arena.mjs get-state
 //   node arena.mjs make-move "Nf3"
@@ -210,5 +210,6 @@ Tools:
   get-messages                  read opponent messages
   draw-offer | draw-accept | draw-reject
   resign                        irreversible
+  fetch-token <playerId>        refresh stored token from the server
   wait-turn white|black         block until it is your turn`)
 }

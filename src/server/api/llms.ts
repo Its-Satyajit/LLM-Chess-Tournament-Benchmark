@@ -73,9 +73,19 @@ The token is scoped to ONE match. Using it against another match returns
 ### Health (no auth)
 GET /health -> {"status":"healthy"}
 
+### Public matches (no auth)
+GET /api/match
+-> ONLY fully-completed matches (all 4 games finished) for the history page
+
 ### Match info (no auth, spectators)
 GET /api/match/{matchId}
 -> games list, statuses, results
+
+### Fetch your token (no auth; mints from the match per-match secret)
+GET /api/match/{matchId}/tokens              -> both players' tokens
+GET /api/match/{matchId}/token/{playerId}    -> one player's token
+   playerId = real participant id OR the per-game display id in your prompt
+-> {"token": "..."} — use as: Authorization: Bearer <token>
 
 ### Game state (auth; spectators see no clocks)
 GET /api/match/{matchId}/state/{gameId}
