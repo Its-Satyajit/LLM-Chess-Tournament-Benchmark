@@ -34,7 +34,10 @@ function gate(
   gameId: string,
   keyPrefix: string,
 ): Gate {
-  const auth = authenticateRequest(headers, matchId)
+  // Authenticate against the match's own secret (loaded from the DB) so token
+  // verification no longer depends on a shared JWT_SECRET env across instances.
+  const secret = engine.getMatch(matchId)?.secret ?? undefined
+  const auth = authenticateRequest(headers, matchId, secret)
   if (!auth.ok) {
     return { failError: auth.error, failStatus: auth.httpStatus }
   }
@@ -141,9 +144,9 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
         whitePlayerId: g.whitePlayerId,
       })),
       matchId: match.id,
-      playerAToken: generatePlayerToken(match.playerAId, match.id),
+      playerAToken: generatePlayerToken(match.playerAId, match.id, match.secret ?? undefined),
       playerAId: match.playerAId,
-      playerBToken: generatePlayerToken(match.playerBId, match.id),
+      playerBToken: generatePlayerToken(match.playerBId, match.id, match.secret ?? undefined),
       playerBId: match.playerBId,
     }
   }, {
@@ -200,7 +203,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   // --- AUTHENTICATED (optional): Get game state (player-specific clock per ADR-005) ---
   .get('/:matchId/state/:gameId', async ({ headers, params }) => {
     await database.ensureMatchLoaded(params.matchId)
-    const auth = authenticateRequest(headers, params.matchId)
+    const secret = engine.getMatch(params.matchId)?.secret ?? undefined
+    const auth = authenticateRequest(headers, params.matchId, secret)
     const playerId = auth.ok ? auth.playerId : undefined
 
     if (!playerId) {
@@ -296,7 +300,8 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   // --- AUTHENTICATED: Get messages ---
   .get('/:matchId/messages/:gameId', async ({ headers, params }) => {
     await database.ensureMatchLoaded(params.matchId)
-    const auth = authenticateRequest(headers, params.matchId)
+    const secret = engine.getMatch(params.matchId)?.secret ?? undefined
+    const auth = authenticateRequest(headers, params.matchId, secret)
     if (!auth.ok) {
       return status(auth.httpStatus, { error: auth.error })
     }

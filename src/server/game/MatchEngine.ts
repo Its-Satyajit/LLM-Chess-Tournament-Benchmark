@@ -29,6 +29,9 @@ export interface Match {
   createdAt: Date
   completedAt: Date | null
   isPrivate: boolean
+  // Per-match secret used to sign/verify player tokens. Persisted so any
+  // instance can authenticate without relying on a shared JWT_SECRET env.
+  secret: string | null
 }
 
 // Blunder/tactical analysis over replayed game history (ADR-017)
@@ -296,6 +299,7 @@ export class MatchEngine {
       playerAModel: config.playerAModel,
       playerBId,
       playerBModel: config.playerBModel,
+      secret: randomBytes(32).toString('hex'),
       startingPosition: config.startingPosition,
       status: 'active',
       timeControl: config.timeControl,

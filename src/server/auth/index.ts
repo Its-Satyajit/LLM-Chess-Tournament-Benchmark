@@ -14,25 +14,34 @@ export interface PlayerToken {
   exp: number
 }
 
-export function generatePlayerToken(playerId: string, matchId: string): string {
+// Player tokens are signed with a per-match secret stored in the DB so that
+// any instance can verify them without relying on a shared JWT_SECRET env var
+// (which drifts across serverless instances). When no per-match secret is
+// supplied (e.g. legacy matches created before per-match secrets existed), we
+// fall back to the global JWT_SECRET so already-issued tokens still verify.
+export function generatePlayerToken(playerId: string, matchId: string, secret?: string): string {
   return jwt.sign(
     {
       match: matchId,
       permissions: ['read:state', 'write:move', 'write:message', 'read:messages'],
       sub: playerId,
     },
-    JWT_SECRET,
+    secret || JWT_SECRET,
     { expiresIn: '2h' },
   )
 }
 
-export function verifyPlayerToken(token: string): PlayerToken | null {
-  try {
-    // SAFETY: type assertion is validated by upstream schema/parsing
-    return jwt.verify(token, JWT_SECRET) as PlayerToken
-  } catch {
-    return null
+export function verifyPlayerToken(token: string, secret?: string): PlayerToken | null {
+  const candidates = Array.from(new Set(secret ? [secret, JWT_SECRET] : [JWT_SECRET]))
+  for (const candidate of candidates) {
+    try {
+      // SAFETY: type assertion is validated by upstream schema/parsing
+      return jwt.verify(token, candidate) as PlayerToken
+    } catch {
+      // try next candidate
+    }
   }
+  return null
 }
 
 // --- Rate Limiters ---
@@ -89,13 +98,14 @@ export type AuthResult =
 export function authenticateRequest(
   headers: Record<string, string | undefined>,
   matchId: string,
+  secret?: string,
 ): AuthResult {
   const authHeader = headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
     return { error: 'Unauthorized', httpStatus: 401, ok: false }
   }
 
-  const payload = verifyPlayerToken(authHeader.slice(7))
+  const payload = verifyPlayerToken(authHeader.slice(7), secret)
   if (!payload) {
     return { error: 'Invalid token', httpStatus: 401, ok: false }
   }

@@ -107,6 +107,7 @@ export async function initializeDatabase(): Promise<void> {
       player_b_id TEXT NOT NULL,
       player_a_model TEXT NOT NULL,
       player_b_model TEXT NOT NULL,
+      secret TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       time_control TEXT NOT NULL DEFAULT '10+5',
       starting_position TEXT NOT NULL DEFAULT 'standard',
@@ -210,6 +211,9 @@ export async function initializeDatabase(): Promise<void> {
     }
     if (!columnNames.has('metrics')) {
       await client.execute('ALTER TABLE matches ADD COLUMN metrics TEXT')
+    }
+    if (!columnNames.has('secret')) {
+      await client.execute('ALTER TABLE matches ADD COLUMN secret TEXT')
     }
   } catch (err) {
     console.error('⚠️  Migration check failed:', err)
