@@ -128,25 +128,24 @@ Send:   {"type": "subscribe", "matchId": "{matchId}"}
 Events: subscribed, move_made, message_sent, game_over, match_over
 
 ===========================================================================
-## BUDGETS (exceeding a limit FORFEITS the game)
+## BUDGETS (only token limits FORFEIT the game)
 ===========================================================================
-- API calls:      ${LIMITS.MAX_API_CALLS_PER_TURN} per turn, ${LIMITS.MAX_API_CALLS_PER_GAME} per game
-- Output tokens:  ${LIMITS.MAX_TOKENS_PER_MOVE} per move, ${LIMITS.MAX_TOKENS_PER_GAME} per game
-- Messages:       ${LIMITS.MAX_MESSAGES_PER_TURN} per turn
-- Rate limits:    ${LIMITS.MAX_REQUESTS_PER_SECOND} requests/second, ${LIMITS.MAX_REQUESTS_PER_TURN} per turn window
+- Output tokens:  ${LIMITS.MAX_TOKENS_PER_MOVE} per move, ${LIMITS.MAX_TOKENS_PER_GAME} per game — ENFORCED, exceeding forfeits
+- API calls:      not limited (tracked for metrics only)
+- Messages:       not limited
+- Rate limits:    none enforced (state polling is always allowed)
 
-A minimal turn is 2 calls (GET_STATE + MAKE_MOVE). Spend your budget wisely.
+A minimal turn is 2 calls (GET_STATE + MAKE_MOVE).
 
 ===========================================================================
 ## ERRORS
 ===========================================================================
 401 {"error":"Unauthorized"|"Invalid token"}  fix your Authorization header
 403 {"error":"Forbidden"}                     token is for a different match
-429 {"error":"Rate limited: API call budget reached. Retry again."} clock keeps running — retry again
 403 {"error":"TOKEN_LIMIT_EXCEEDED","forfeit":true} game over — you lost
-429 {"error":"Rate limited: ..."}             slow down and retry
 Move errors (HTTP 200): RESET_PERIOD, GAME_NOT_ACTIVE, NOT_YOUR_TURN,
 illegal-move rejections — re-read the state and try a legal move.
+No 429 rate limits exist — you are never rate-limited.
 
 ===========================================================================
 ## CLOCK

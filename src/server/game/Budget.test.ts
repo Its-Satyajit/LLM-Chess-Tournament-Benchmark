@@ -40,58 +40,56 @@ describe('Budget Tracking', () => {
       expect(budget?.white.apiCallsGame).toBe(5)
     })
 
-    it('returns false when per-turn limit exceeded', () => {
+    it('keeps counting (advisory) far beyond the per-turn limit without blocking', () => {
       const engine = new MatchEngine()
       const match = createTestMatch(engine)
       const game = match.games[0]
 
-      // Exhaust turn limit
-      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_TURN; i++) {
+      // Far exceed the (now advisory) per-turn budget
+      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_TURN + 50; i++) {
         engine.trackApiCall(match.id, game.id, match.playerAId)
       }
 
-      // Next call should fail
       const result = engine.trackApiCall(match.id, game.id, match.playerAId)
-      expect(result).toBe(false)
+      expect(result).toBe(true)
+
+      const budget = engine.getBudget(match.id, game.id)
+      expect(budget?.white.apiCallsTurn).toBe(LIMITS.MAX_API_CALLS_PER_TURN + 51)
     })
 
-    it('returns false when per-game limit exceeded without forfeiting the game', () => {
+    it('keeps counting (advisory) far beyond the per-game limit without blocking or forfeiting', () => {
       const engine = new MatchEngine()
       const match = createTestMatch(engine)
       const game = match.games[0]
 
-      // Exhaust game limit (reset turn each time)
-      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_GAME; i++) {
+      // Far exceed the (now advisory) per-game budget
+      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_GAME + 50; i++) {
         engine.resetTurnBudget(game.id, 'white')
         engine.trackApiCall(match.id, game.id, match.playerAId)
       }
 
-      // Game limit reached — next call returns false but does NOT forfeit
       engine.resetTurnBudget(game.id, 'white')
       const result = engine.trackApiCall(match.id, game.id, match.playerAId)
-      expect(result).toBe(false)
+      expect(result).toBe(true)
 
-      // Game remains active and not completed on api_limit
+      // Game remains active and not completed
       expect(game.status).toBe('active')
       expect(game.result).toBeNull()
     })
 
-    it('rejects makeMove when game API limit reached without forfeiting the game', () => {
+    it('accepts makeMove even when the (advisory) game API limit is far exceeded', () => {
       const engine = new MatchEngine()
       const match = createTestMatch(engine)
       const game = match.games[0]
 
-      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_GAME; i++) {
+      for (let i = 0; i < LIMITS.MAX_API_CALLS_PER_GAME + 50; i++) {
         engine.resetTurnBudget(game.id, 'white')
         engine.trackApiCall(match.id, game.id, match.playerAId)
       }
 
       engine.resetTurnBudget(game.id, 'white')
       const moveResult = engine.makeMove(match.id, game.id, match.playerAId, 'e4')
-      expect(moveResult.accepted).toBe(false)
-      expect(moveResult.error).toBe('API_LIMIT')
-      expect(game.status).toBe('active')
-      expect(game.result).toBeNull()
+      expect(moveResult.accepted).toBe(true)
     })
 
     it('resets turn budget correctly', () => {

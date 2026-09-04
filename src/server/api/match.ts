@@ -2,8 +2,6 @@ import { Elysia, t, status } from 'elysia'
 import {
   authenticateRequest,
   generatePlayerToken,
-  rateLimiter,
-  turnRateLimiter,
 } from '../auth'
 import { database } from '../services/database'
 import type { ModelConfig } from '@llm-chess-arena/shared'
@@ -42,16 +40,11 @@ function gate(
     return { failError: auth.error, failStatus: auth.httpStatus }
   }
 
-  if (!rateLimiter.check(`${keyPrefix}:${auth.playerId}`)) {
-    return { failError: 'Rate limited: too many requests per second', failStatus: 429 }
-  }
-  if (!turnRateLimiter.check(`turn:${auth.playerId}`)) {
-    return { failError: 'Rate limited: too many requests this turn', failStatus: 429 }
-  }
-
-  // ADR-023: Track API call for non-move routes; makeMove handles its own budget without double-counting
-  if (keyPrefix !== 'move' && !engine.trackApiCall(matchId, gameId, auth.playerId)) {
-    return { failError: 'Rate limited: API call budget reached. Retry again.', failStatus: 429 }
+  // ADR-023: count calls for metrics only. Request rate limits and API-call
+  // budgets are NOT enforced — in-memory per-instance counters drift across
+  // serverless instances and spuriously blocked real players (429s mid-game).
+  if (keyPrefix !== 'move') {
+    engine.trackApiCall(matchId, gameId, auth.playerId)
   }
 
   return { playerId: auth.playerId }
@@ -258,11 +251,9 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       }
     }
 
-    // ADR-023: Track API call for budget enforcement (non-forfeiting rate limit)
-    if (!engine.trackApiCall(params.matchId, params.gameId, playerId)) {
-      persistTurn(params.matchId)
-      return status(429, { error: 'Rate limited: API call budget reached. Retry again.' })
-    }
+    // State reads are passive polling (e.g. wait-turn at 3s cadence) and are
+    // never rate-limited or charged to any budget, so players waiting on a
+    // long turn can poll freely without spurious 429s.
 
     // ADR-003: Clock runs during API processing
     return withClock(params.matchId, params.gameId, playerId, () =>
@@ -294,19 +285,6 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
       engine.makeMove(params.matchId, params.gameId, playerId, body.move),
     )
     persistTurn(params.matchId)
-
-    if (result.error === 'API_LIMIT') {
-      return status(429, { error: 'Rate limited: API call budget reached. Retry again.' })
-    }
-
-    // Story 45: the per-turn allowance resets when a move is accepted
-    if (result.accepted) {
-      const currentGame = engine.getCurrentGame(params.matchId)
-      if (currentGame) {
-        turnRateLimiter.reset(`turn:${currentGame.whitePlayerId}`)
-        turnRateLimiter.reset(`turn:${currentGame.blackPlayerId}`)
-      }
-    }
     return result
   }, {
     body: t.Object({

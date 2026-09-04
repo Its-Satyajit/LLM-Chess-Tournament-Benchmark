@@ -386,16 +386,10 @@ export class MatchEngine {
       return { accepted: false, error: 'NOT_YOUR_TURN' }
     }
     
-    // Check API call budget
-    if (game.apiCallsThisTurn[color] >= LIMITS.MAX_API_CALLS_PER_TURN) {
-      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per turn exceeded' })
-      return { accepted: false, error: 'API_LIMIT' }
-    }
-    if (game.apiCallsThisGame[color] >= LIMITS.MAX_API_CALLS_PER_GAME) {
-      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
-      return { accepted: false, error: 'API_LIMIT' }
-    }
-    
+    // API-call budgets are NOT enforced (advisory only): in-memory per-instance
+    // counters drift across serverless instances and spuriously rejected real
+    // moves. Token budgets below remain enforced.
+
     // Check token budget for this move
     if (game.tokensThisMove[color] >= LIMITS.MAX_TOKENS_PER_MOVE) {
       this.logEvent(matchId, gameId, 'error', playerId, { error: 'TOKEN_LIMIT', detail: 'Max tokens per move exceeded' })
@@ -582,6 +576,9 @@ export class MatchEngine {
 
   // --- Budget Tracking ---
 
+  // Count an API call for metrics. Always allows: budgets are advisory and no
+  // longer gate requests (see makeMove) — per-instance counters would otherwise
+  // spuriously block real players across serverless instances.
   trackApiCall(matchId: string, gameId: string, playerId: string): boolean {
     const game = this.games.get(gameId)
     if (!game) return false
@@ -590,15 +587,6 @@ export class MatchEngine {
 
     game.apiCallsThisTurn[color]++
     game.apiCallsThisGame[color]++
-
-    if (game.apiCallsThisTurn[color] > LIMITS.MAX_API_CALLS_PER_TURN) {
-      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per turn exceeded' })
-      return false
-    }
-    if (game.apiCallsThisGame[color] > LIMITS.MAX_API_CALLS_PER_GAME) {
-      this.logEvent(matchId, gameId, 'error', playerId, { error: 'API_LIMIT', detail: 'Max API calls per game exceeded' })
-      return false
-    }
     return true
   }
 
@@ -828,6 +816,19 @@ export class MatchEngine {
     for (const game of match.games) {
       this.games.set(game.id, game)
     }
+  }
+
+  // Drop a match (and its games/events) from in-memory state so it can be
+  // reloaded fresh from the database. Used when a serverless instance detects
+  // its copy is stale (moves persisted by another instance).
+  removeMatch(matchId: string): void {
+    const match = this.matches.get(matchId)
+    if (!match) return
+    this.matches.delete(matchId)
+    for (const game of match.games) {
+      this.games.delete(game.id)
+    }
+    this.events = this.events.filter(e => e.matchId !== matchId)
   }
 
   // Restore persisted events on startup so /events and metrics survive restarts

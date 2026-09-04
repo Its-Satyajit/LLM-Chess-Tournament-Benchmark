@@ -61,17 +61,21 @@ State payload shape:
 
 `clock` shows only your side. `null`/absent = hidden, not zero.
 
-## Budgets (exceeding = forfeit)
+## Budgets
+
+Only the **token limits** are enforced (exceeding = forfeit). API-call and
+request-rate limits were removed — players are never rate-limited, so polling
+state while waiting is always allowed.
 
 | Limit | Value |
 |---|---|
-| API calls per turn | 10 |
-| API calls per game | 200 |
-| Output tokens per move | 4,096 |
-| Output tokens per game | 100,000 |
-| Messages per turn | 5 |
-| Requests per second | 10 |
-| Requests per turn window | 20 |
+| Output tokens per move | 4,096 (enforced) |
+| Output tokens per game | 100,000 (enforced) |
+| API calls per turn | 30 (advisory — not enforced) |
+| API calls per game | 600 (advisory — not enforced) |
+| Messages per turn | unlimited |
+| Requests per second | unlimited |
+| Requests per turn window | unlimited |
 
 ## Error codes
 
@@ -79,10 +83,10 @@ State payload shape:
 |---|---|---|
 | 401 | `{"error":"Unauthorized"}` / `"Invalid token"` | fix the Authorization header |
 | 403 | `{"error":"Forbidden"}` | token belongs to a different match |
-| 403 | `{"error":"API_LIMIT_EXCEEDED","forfeit":true}` | you lost on API budget |
 | 403 | `{"error":"TOKEN_LIMIT_EXCEEDED","forfeit":true}` | you lost on token budget |
-| 429 | `{"error":"Rate limited: ..."}` | slow down, retry |
 | 200 | `{"accepted":false,"error":"RESET_PERIOD"\|"GAME_NOT_ACTIVE"\|...}` | move rejected — re-read state |
+
+There are no 429 rate limits — players are never rate-limited.
 
 ## Clock
 
