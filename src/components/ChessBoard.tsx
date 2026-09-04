@@ -139,7 +139,7 @@ export default function ChessBoard({
                   <ChessPiece
                     // SAFETY: piece is a FEN piece character [K,Q,R,B,N,P,k,q,r,b,n,p]
                     piece={piece as PieceLetter}
-                    className="w-[82%] h-[82%] drop-shadow-sm"
+                    className="w-[82%] h-[82%] drop-shadow-2xl drop-shadow-black/50 "
                   />
                 </span>
               )}

@@ -25,6 +25,8 @@ export class DatabaseService {
   private engine: MatchEngine
   // Per-match watermark: how many engine events have been persisted
   private savedEventCounts = new Map<string, number>()
+  // Dedupe concurrent on-demand loads of the same match
+  private loading = new Map<string, Promise<Match | null>>()
   private initPromise: Promise<void>
 
   constructor() {
@@ -40,6 +42,24 @@ export class DatabaseService {
 
   getEngine(): MatchEngine {
     return this.engine
+  }
+
+  // Ensure the in-memory engine has this match loaded, lazily reading it from
+  // SQLite when it isn't (serverless cold start / multi-instance drift).
+  async ensureMatchLoaded(matchId: string): Promise<Match | null> {
+    await this.ensureInitialized()
+    if (this.engine.getMatch(matchId)) return this.engine.getMatch(matchId)!
+    let inFlight = this.loading.get(matchId)
+    if (!inFlight) {
+      inFlight = this.loadMatch(matchId)
+      this.loading.set(matchId, inFlight)
+      try {
+        return await inFlight
+      } finally {
+        this.loading.delete(matchId)
+      }
+    }
+    return inFlight
   }
 
   // Persist a match to database
@@ -353,107 +373,120 @@ export class DatabaseService {
     return result
   }
 
+  // Reconstitute a single match into the in-memory engine from SQLite.
+  // Used both by loadMatches() on startup and on-demand by ensureMatchLoaded()
+  // when a request hits an instance whose engine never loaded the match
+  // (e.g. serverless cold start / multi-instance drift). Returns the loaded
+  // Match, or null when it isn't in the DB.
+  async loadMatch(matchId: string): Promise<Match | null> {
+    await this.ensureInitialized()
+    if (this.engine.getMatch(matchId)) return this.engine.getMatch(matchId)!
+    const dbMatch = await db.select().from(matches).where(eq(matches.id, matchId)).get()
+    if (!dbMatch) return null
+    const dbGames = await db.select().from(games).where(eq(games.matchId, dbMatch.id))
+
+    const matchGames: Game[] = dbGames.map(g => ({
+      apiCallsThisGame: { black: 0, white: 0 },
+      apiCallsThisTurn: { black: 0, white: 0 },
+      blackPlayerId: g.blackPlayerId,
+      chessGame: new ChessGame(g.fenInitial),
+      clock: new ClockManager(dbMatch.timeControl),
+      completedAt: g.completedAt ? (g.completedAt instanceof Date ? g.completedAt : new Date(g.completedAt * 1000)) : null,
+      createdAt: g.createdAt instanceof Date ? g.createdAt : new Date(g.createdAt * 1000),
+      drawOfferCooldown: 0,
+      drawOfferPending: null,
+      fenFinal: g.fenFinal,
+      fenInitial: g.fenInitial,
+      gameNumber: g.gameNumber,
+      id: g.id,
+      matchId: g.matchId,
+      messages: [], // populated from DB below
+      moveCount: g.moveCount,
+      moves: [],
+      result: g.result ? JSON.parse(g.result) : null,
+      // SAFETY: g.status is stored as a string and matches GameStatus union
+      status: g.status as 'pending' | 'active' | 'completed',
+      // Story 33: Generate fresh display IDs per game (not persisted, regenerated on load)
+      displayPlayerAId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      displayPlayerBId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      tokensThisGame: { black: 0, white: 0 },
+      tokensThisMove: { black: 0, white: 0 },
+      whitePlayerId: g.whitePlayerId,
+    }))
+
+    // Load events to reconstruct move history
+    for (const game of matchGames) {
+      const gameEvents = await db.select().from(events).where(eq(events.gameId, game.id))
+      const moveEvents = gameEvents.filter(e => e.eventType === 'move')
+      for (const moveEvent of moveEvents) {
+        const data = JSON.parse(moveEvent.data)
+        game.moves.push(data.move)
+        game.chessGame.makeMove(data.move)
+      }
+    }
+
+    // Find current game index
+    const currentGameIndex = matchGames.findIndex(g => g.status === 'active')
+
+    const match: Match = {
+      id: dbMatch.id,
+      playerAId: dbMatch.playerAId,
+      playerBId: dbMatch.playerBId,
+      // SAFETY: playerAModel was written by saveMatch as JSON.stringify(ModelConfig)
+      playerAModel: JSON.parse(dbMatch.playerAModel),
+      // SAFETY: playerBModel was written by saveMatch as JSON.stringify(ModelConfig)
+      playerBModel: JSON.parse(dbMatch.playerBModel),
+      // SAFETY: dbMatch.status is stored as "active" | "completed"
+      status: dbMatch.status as 'active' | 'completed',
+      timeControl: dbMatch.timeControl,
+      // SAFETY: dbMatch.startingPosition is stored as "standard" | "chess960"
+      startingPosition: dbMatch.startingPosition as 'standard' | 'chess960',
+      // SAFETY: dbMatch.boardMode is stored as "pure" | "assisted"
+      boardMode: dbMatch.boardMode as 'pure' | 'assisted',
+      chess960Seed: dbMatch.chess960Seed ?? null,
+      // SAFETY: type assertion is validated by upstream schema/parsing
+      isPrivate: (dbMatch as any).isPrivate ?? false,
+      games: matchGames,
+      currentGameIndex: currentGameIndex >= 0 ? currentGameIndex : 0,
+      createdAt: dbMatch.createdAt instanceof Date ? dbMatch.createdAt : new Date(dbMatch.createdAt * 1000),
+      completedAt: dbMatch.completedAt ? (dbMatch.completedAt instanceof Date ? dbMatch.completedAt : new Date(dbMatch.completedAt * 1000)) : null,
+    }
+
+    // Load persisted chat messages into each game
+    for (const game of matchGames) {
+      game.messages = await this.loadMessages(game.id)
+    }
+
+    // Restore events into the engine and mark them as already saved
+    const savedRows = await db
+      .select()
+      .from(events)
+      .where(inArray(events.gameId, matchGames.map(g => g.id)))
+    this.engine.restoreEvents(savedRows.map(r => ({
+      clockBlack: r.clockBlack ?? null,
+      clockWhite: r.clockWhite ?? null,
+      // SAFETY: data was written by saveEvent as JSON.stringify(EventData)
+      data: JSON.parse(r.data) as EventData,
+      eventType: r.eventType,
+      gameId: r.gameId,
+      gameMove: r.gameMove ?? null,
+      matchId: dbMatch.id,
+      playerId: r.playerId,
+      timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp),
+    })))
+    this.savedEventCounts.set(match.id, savedRows.length)
+
+    // Add to engine's internal state
+    this.engine.addMatch(match)
+    return match
+  }
+
   // Reconstitute in-memory engine state from SQLite on startup
   async loadMatches(): Promise<void> {
     await this.ensureInitialized()
     const dbMatches = await db.select().from(matches)
-
     for (const dbMatch of dbMatches) {
-      const dbGames = await db.select().from(games).where(eq(games.matchId, dbMatch.id))
-
-      const matchGames: Game[] = dbGames.map(g => ({
-        apiCallsThisGame: { black: 0, white: 0 },
-        apiCallsThisTurn: { black: 0, white: 0 },
-        blackPlayerId: g.blackPlayerId,
-        chessGame: new ChessGame(g.fenInitial),
-        clock: new ClockManager(dbMatch.timeControl),
-        completedAt: g.completedAt ? (g.completedAt instanceof Date ? g.completedAt : new Date(g.completedAt * 1000)) : null,
-        createdAt: g.createdAt instanceof Date ? g.createdAt : new Date(g.createdAt * 1000),
-        drawOfferCooldown: 0,
-        drawOfferPending: null,
-        fenFinal: g.fenFinal,
-        fenInitial: g.fenInitial,
-        gameNumber: g.gameNumber,
-        id: g.id,
-        matchId: g.matchId,
-        messages: [], // populated from DB below
-        moveCount: g.moveCount,
-        moves: [],
-        result: g.result ? JSON.parse(g.result) : null,
-        // SAFETY: g.status is stored as a string and matches GameStatus union
-        status: g.status as 'pending' | 'active' | 'completed',
-        // Story 33: Generate fresh display IDs per game (not persisted, regenerated on load)
-        displayPlayerAId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-        displayPlayerBId: `P-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-        tokensThisGame: { black: 0, white: 0 },
-        tokensThisMove: { black: 0, white: 0 },
-        whitePlayerId: g.whitePlayerId,
-      }))
-
-      // Load events to reconstruct move history
-      for (const game of matchGames) {
-        const gameEvents = await db.select().from(events).where(eq(events.gameId, game.id))
-        const moveEvents = gameEvents.filter(e => e.eventType === 'move')
-        for (const moveEvent of moveEvents) {
-          const data = JSON.parse(moveEvent.data)
-          game.moves.push(data.move)
-          game.chessGame.makeMove(data.move)
-        }
-      }
-
-      // Find current game index
-      const currentGameIndex = matchGames.findIndex(g => g.status === 'active')
-
-      const match: Match = {
-        id: dbMatch.id,
-        playerAId: dbMatch.playerAId,
-        playerBId: dbMatch.playerBId,
-        // SAFETY: playerAModel was written by saveMatch as JSON.stringify(ModelConfig)
-        playerAModel: JSON.parse(dbMatch.playerAModel),
-        // SAFETY: playerBModel was written by saveMatch as JSON.stringify(ModelConfig)
-        playerBModel: JSON.parse(dbMatch.playerBModel),
-        // SAFETY: dbMatch.status is stored as "active" | "completed"
-        status: dbMatch.status as 'active' | 'completed',
-        timeControl: dbMatch.timeControl,
-        // SAFETY: dbMatch.startingPosition is stored as "standard" | "chess960"
-        startingPosition: dbMatch.startingPosition as 'standard' | 'chess960',
-        // SAFETY: dbMatch.boardMode is stored as "pure" | "assisted"
-        boardMode: dbMatch.boardMode as 'pure' | 'assisted',
-        chess960Seed: dbMatch.chess960Seed ?? null,
-        // SAFETY: type assertion is validated by upstream schema/parsing
-        isPrivate: (dbMatch as any).isPrivate ?? false,
-        games: matchGames,
-        currentGameIndex: currentGameIndex >= 0 ? currentGameIndex : 0,
-        createdAt: dbMatch.createdAt instanceof Date ? dbMatch.createdAt : new Date(dbMatch.createdAt * 1000),
-        completedAt: dbMatch.completedAt ? (dbMatch.completedAt instanceof Date ? dbMatch.completedAt : new Date(dbMatch.completedAt * 1000)) : null,
-      }
-
-      // Load persisted chat messages into each game
-      for (const game of matchGames) {
-        game.messages = await this.loadMessages(game.id)
-      }
-
-      // Restore events into the engine and mark them as already saved
-      const savedRows = await db
-        .select()
-        .from(events)
-        .where(inArray(events.gameId, matchGames.map(g => g.id)))
-      this.engine.restoreEvents(savedRows.map(r => ({
-        clockBlack: r.clockBlack ?? null,
-        clockWhite: r.clockWhite ?? null,
-        // SAFETY: data was written by saveEvent as JSON.stringify(EventData)
-        data: JSON.parse(r.data) as EventData,
-        eventType: r.eventType,
-        gameId: r.gameId,
-        gameMove: r.gameMove ?? null,
-        matchId: dbMatch.id,
-        playerId: r.playerId,
-        timestamp: r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp),
-      })))
-      this.savedEventCounts.set(match.id, savedRows.length)
-
-      // Add to engine's internal state
-      this.engine.addMatch(match)
+      await this.loadMatch(dbMatch.id)
     }
   }
 
