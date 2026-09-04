@@ -79,6 +79,7 @@ export class DatabaseService {
       playerAModel: JSON.stringify(match.playerAModel),
       playerBId: match.playerBId,
       playerBModel: JSON.stringify(match.playerBModel),
+      secret: match.secret ?? null,
       startingPosition: match.startingPosition,
       status: match.status,
       timeControl: match.timeControl,
@@ -436,6 +437,7 @@ export class DatabaseService {
       playerAModel: JSON.parse(dbMatch.playerAModel),
       // SAFETY: playerBModel was written by saveMatch as JSON.stringify(ModelConfig)
       playerBModel: JSON.parse(dbMatch.playerBModel),
+      secret: dbMatch.secret ?? null,
       // SAFETY: dbMatch.status is stored as "active" | "completed"
       status: dbMatch.status as 'active' | 'completed',
       timeControl: dbMatch.timeControl,

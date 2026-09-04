@@ -12,6 +12,7 @@ export const matches = sqliteTable('matches', {
   playerBId: text('player_b_id').notNull(),
   playerBModel: text('player_b_model').notNull(), // JSON string
   metrics: text('metrics'), // JSON string of aggregate MatchMetrics
+  secret: text('secret'), // per-match signing secret for player tokens (null for legacy matches)
   startingPosition: text('starting_position').notNull().default('standard'), // standard | chess960
   status: text('status').notNull().default('pending'), // pending | active | completed
   timeControl: text('time_control').notNull().default('10+5'),

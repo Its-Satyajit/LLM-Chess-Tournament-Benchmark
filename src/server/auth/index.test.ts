@@ -63,6 +63,26 @@ describe('Auth', () => {
         'read:messages',
       ])
     })
+
+    it('signs and verifies with a per-match secret', () => {
+      const secret = 'per-match-secret-123'
+      const token = generatePlayerToken('player-1', 'match-1', secret)
+      const payload = verifyPlayerToken(token, secret)
+      expect(payload?.sub).toBe('player-1')
+      expect(payload?.match).toBe('match-1')
+    })
+
+    it('rejects a token when the per-match secret does not match', () => {
+      const token = generatePlayerToken('player-1', 'match-1', 'secret-a')
+      expect(verifyPlayerToken(token, 'secret-b')).toBeNull()
+    })
+
+    it('still verifies a global-secret token when a per-match secret is supplied', () => {
+      // Back-compat: verification tries the per-match secret first, then the
+      // global JWT_SECRET, so legacy/global tokens keep working.
+      const token = generatePlayerToken('player-1', 'match-1')
+      expect(verifyPlayerToken(token, 'some-match-secret')).not.toBeNull()
+    })
   })
 
   describe('RateLimiter', () => {
