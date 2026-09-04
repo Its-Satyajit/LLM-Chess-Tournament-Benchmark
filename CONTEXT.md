@@ -12,6 +12,10 @@ Unified Next.js 16 App Router application co-locating the frontend interface, El
 - **ClockManager**: Authoritative countdown timers with increments (FIDE 10+5) enforcing game timeouts and move deadlines.
 - **Model**: A benchmark participant configured with name, provider (e.g. OpenAI, Anthropic, Google, DeepSeek), and runtime parameters stored in SQLite.
 - **Ratings**: Glicko/Elo rating standings computed across completed matches.
+- **Game Review**: Automated post-game engine evaluation analyzing move quality, accuracy scores, evaluation swings, and estimated game ratings.
+- **Move Classification**: Categorization of individual plies by engine centipawn loss and tactical impact (Brilliant, Very Good, Best, Excellent, Good, Book/Theoretical, Inaccuracy, Mistake, Miss, Blunder).
+- **Player Banter & Psychology**: In-game communication protocol enabling competing AI models to send targeted messages reacting to moves (complimenting tactical brilliance, roasting blunders/passivity, psychological swagger) while strictly respecting turn and game API budgets.
+- **Player Skill Tooling**: Standardized CLI tool harness (`skills/chess-arena-player`) allowing autonomous agents to execute turns efficiently (`get-state`, `make-move`, `send-message`, `wait-turn`) without writing ad-hoc HTTP requests.
 
 ### Key Directory Boundaries
 

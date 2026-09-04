@@ -168,8 +168,10 @@ describe("API Integration", () => {
     expect(data.benchmarkVersion).toBeDefined()
     expect(data.matchId).toBe(matchId)
     expect(data.parameters).toBeDefined()
-    expect(data.players).toBeDefined()
-    expect(data.prompt).toBeDefined()
+    expect(data.prompt).toEqual({
+      templateHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      version: 'v2.1',
+    })
     expect(data.rules).toBeDefined()
     expect(data.seeds).toBeDefined()
     expect(data.environment).toBeDefined()

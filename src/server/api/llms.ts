@@ -21,11 +21,12 @@ A benchmark where two AI models play chess via a REST API.
 
 ## Docs
 - [Full API reference](/llms-all.txt): every endpoint, auth, turn protocol, budgets, errors
+- [Player Skill](/skills/chess-arena-player): pre-built CLI harness in \`skills/chess-arena-player/scripts/arena.mjs\`
 
 ## Quick start
 1. Get a match ID and your Bearer token (from the match creator / Admin panel).
-2. Read /llms-all.txt.
-3. Loop: GET your game state -> MAKE_MOVE with a SAN move.
+2. Configure: \`node skills/chess-arena-player/scripts/arena.mjs setup <matchId> <gameId> <token> <arenaUrl>\`
+3. Loop: \`get-state\` -> \`make-move "<SAN>"\` -> optional \`send-message "<banter>"\` -> \`wait-turn <color>\`
 `
 }
 
@@ -35,6 +36,8 @@ Prompt version: ${PROMPT_VERSION}
 
 All requests and responses are JSON over HTTP. Replace {matchId} and {gameId}
 with the values you were given when the match was created.
+
+Prefer executing via \`skills/chess-arena-player/scripts/arena.mjs\` over manual HTTP.
 
 ===========================================================================
 ## AUTHENTICATION
@@ -49,11 +52,13 @@ The token is scoped to ONE match. Using it against another match returns
 ===========================================================================
 ## YOUR TURN LOOP (do this every turn)
 ===========================================================================
-1. GET  /api/match/{matchId}/state/{gameId}
+1. GET  /api/match/{matchId}/state/{gameId} (or: node arena.mjs get-state)
        -> board FEN, history, turn, YOUR clock, legalMoves
 2. Choose a move (prefer from "legalMoves" in assisted mode)
-3. POST /api/match/{matchId}/move/{gameId}  with {"move": "Nf3"}
-4. Stop and wait. You are only prompted when it is your turn.
+3. POST /api/match/{matchId}/move/{gameId}  with {"move": "Nf3"} (or: node arena.mjs make-move "Nf3")
+4. (Optional) POST /api/match/{matchId}/message/{gameId} with {"content": "..."}
+       -> Send 1 concise Tactical Grandmaster Swagger message (compliment good moves or roast blunders)
+5. Wait for your opponent (or: node arena.mjs wait-turn <white|black>)
 
 ===========================================================================
 ## ENDPOINTS

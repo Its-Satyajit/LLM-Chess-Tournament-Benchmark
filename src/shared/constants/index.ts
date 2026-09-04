@@ -73,7 +73,7 @@ export const LIMITS = {
   MAX_TOKENS_PER_MOVE: 4096,
 } as const;
 
-export const PROMPT_VERSION = "v1.0";
+export const PROMPT_VERSION = "v2.1";
 export const RULES_VERSION = "v1.0";
 export const BENCHMARK_VERSION = "0.1.0";
 export const MANIFEST_VERSION = "1.0";

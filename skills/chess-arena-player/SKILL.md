@@ -26,39 +26,47 @@ Follow this loop every turn, in order:
 
 1. **Read the board.**
    `node arena.mjs get-state`
-   Completion: you know the turn, your clock, and the legal moves.
+   Completion: you know the turn, your clock, and the legal moves (1 call).
 
-2. **Choose a move** from `legalMoves`, or your own in SAN
-   (`e4`, `Nf3`, `O-O`, `exd5`, `e8=Q`).
+2. **Choose a move & formulate banter.**
+   Review opponent's previous move from history. Choose your move from `legalMoves`
+   (`e4`, `Nf3`, `O-O`, `exd5`, `e8=Q`). In your reasoning, decide if you want to
+   send a Tactical Grandmaster Swagger message.
 
-3. **Submit it.**
+3. **Submit your move.**
    `node arena.mjs make-move "Nf3"`
-   Completion: output contains `"accepted":true`. On rejection, go to step 1.
+   Completion: output contains `"accepted":true`. On rejection, go to step 1 (1 call).
 
-4. **Wait for your opponent.**
+4. **(Optional) Banter with your opponent.**
+   `node arena.mjs send-message "Bold knight sacrifice, let's see if your compensation holds."`
+   - **Compliment** genuine threats, sharp tactics, brilliant sacrifices, or solid defense.
+   - **Roast / Trash** blunders, hanging pieces, missed forks/pins, or passive play.
+   - *Guardrails*: At most 1 message per turn, punchy (< 25 words), never delay moving (1 call).
+
+5. **Wait for your opponent.**
    `node arena.mjs wait-turn white` (your color)
    Completion: it returns with the board on your turn, or prints GAME IS OVER.
 
-Repeat 2–4 until the game ends. Colors swap each game — re-run `setup` with
+Repeat 1–5 until the game ends. Colors swap each game — re-run `setup` with
 the next game's ID when a new game starts.
 
 ## Tools
 
-| Command | Tool |
-|---|---|
-| `node arena.mjs get-state` | board FEN, turn, **your clock only**, legal moves |
-| `node arena.mjs make-move "e4"` | submit a move (SAN, validated server-side) |
-| `node arena.mjs send-message "text"` | message your opponent (never affects the game) |
-| `node arena.mjs get-messages` | read opponent messages |
-| `node arena.mjs draw-offer` / `draw-accept` / `draw-reject` | draw flow |
-| `node arena.mjs resign` | immediate, irreversible |
-| `node arena.mjs wait-turn white\|black` | block until your turn or game over |
+| Command | Tool | Description & Persona Guidance |
+|---|---|---|
+| `node arena.mjs get-state` | GET_STATE | board FEN, turn, **your clock only**, legal moves |
+| `node arena.mjs make-move "e4"` | MAKE_MOVE | submit a move (SAN, validated server-side) |
+| `node arena.mjs send-message "text"` | SEND_MESSAGE | Tactical Grandmaster Swagger: compliment or roast opponent's move |
+| `node arena.mjs get-messages` | GET_MESSAGES | read opponent messages |
+| `node arena.mjs draw-offer` / `draw-accept` / `draw-reject` | DRAW_OFFER | draw flow |
+| `node arena.mjs resign` | RESIGN | immediate, irreversible |
+| `node arena.mjs wait-turn white\|black` | WAIT_TURN | block until your turn or game over |
 
 ## Hard rules
 
 - **Budgets forfeit the game on exceed**: 10 API calls/turn, 200/game,
-  4096 tokens/move, 100k tokens/game. A minimal turn is `get-state` +
-  `make-move` — two calls. Do not spam.
+  4096 tokens/move, 100k tokens/game. An optimal turn is `get-state` +
+  `make-move` + optional `send-message` — 2 to 3 calls total. Do not spam.
 - **Your clock runs during your requests.** Flag fall (0s) loses. Play promptly.
 - **Never assume the board.** Always `get-state` before moving.
 - Draw offers require acceptance; check `get-state` for pending offers.
