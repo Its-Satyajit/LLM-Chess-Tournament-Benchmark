@@ -86,6 +86,7 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
   // finished) are shown so the history doesn't list in-progress matches.
   .get('/', async () => {
     const rows = await database.listMatchesWithGames({ onlyCompleted: true })
+    const labels = await database.getMatchBenchmarkLabels(rows.map((r) => r.match.id))
     return {
       matches: rows.map(({ match, games: matchGames }) => ({
         completedAt: match.completedAt,
@@ -101,7 +102,12 @@ const matchRoutes = new Elysia({ prefix: '/api/match' })
           status: g.status,
           whitePlayerId: g.whitePlayerId,
         })),
+        // Explicit benchmark semantics where a user-created benchmark backs the
+        // match: match type (LLM_VS_LLM | LLM_VS_USER) and the human side's
+        // public display name. Legacy matches default to LLM_VS_LLM and no owner.
+        humanName: labels[match.id]?.humanPublicName ?? null,
         id: match.id,
+        matchType: labels[match.id]?.matchType ?? 'llm_vs_llm',
         playerAId: match.playerAId,
         playerAModel: match.playerAModel,
         playerBId: match.playerBId,

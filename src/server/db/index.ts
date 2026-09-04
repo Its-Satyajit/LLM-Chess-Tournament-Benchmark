@@ -199,6 +199,77 @@ export async function initializeDatabase(): Promise<void> {
       plies TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+
+    -- Better Auth core tables (v1.7 defaults; owned by the Drizzle adapter)
+    CREATE TABLE IF NOT EXISTS user (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      image TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL REFERENCES user(id),
+      expires_at INTEGER NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS session_user_id_idx ON session(user_id);
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      issuer TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES user(id),
+      access_token TEXT,
+      refresh_token TEXT,
+      id_token TEXT,
+      access_token_expires_at INTEGER,
+      refresh_token_expires_at INTEGER,
+      scope TEXT,
+      password TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS account_issuer_account_id_unique ON account(issuer, account_id);
+    CREATE TABLE IF NOT EXISTS verification (
+      id TEXT PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      value TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS verification_identifier_idx ON verification(identifier);
+
+    -- User-owned benchmarks
+    CREATE TABLE IF NOT EXISTS benchmarks (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES user(id),
+      match_type TEXT NOT NULL DEFAULT 'llm_vs_llm',
+      status TEXT NOT NULL DEFAULT 'created',
+      title TEXT,
+      is_private INTEGER NOT NULL DEFAULT 0,
+      config TEXT NOT NULL,
+      participants TEXT NOT NULL,
+      match_id TEXT REFERENCES matches(id),
+      result TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS benchmarks_owner_id_idx ON benchmarks(owner_id);
+    CREATE INDEX IF NOT EXISTS benchmarks_status_idx ON benchmarks(status);
+    CREATE INDEX IF NOT EXISTS benchmarks_created_at_idx ON benchmarks(created_at);
+    CREATE INDEX IF NOT EXISTS benchmarks_match_id_idx ON benchmarks(match_id);
   `)
 
   // Migrate existing tables if columns were added later

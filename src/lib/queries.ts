@@ -1,5 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getMatch, getGameState, getRatings, createMatch, getMatchTokens } from './api'
+import {
+  cancelBenchmark,
+  createBenchmark,
+  deleteBenchmark,
+  getMatch,
+  getGameState,
+  getRatings,
+  createMatch,
+  getMatchTokens,
+  listMyBenchmarks,
+  startBenchmark,
+  type BenchmarkCreateInput,
+  type BenchmarkSummary,
+} from './api'
 import type { ModelConfig } from '@llm-chess-arena/shared'
 
 export interface Model {
@@ -120,6 +133,62 @@ export function useCreateMatch() {
     },
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['match', data.matchId] })
+    },
+  })
+}
+
+// --- User-owned benchmarks ---
+
+export function useMyBenchmarks() {
+  return useQuery({
+    queryKey: ['my-benchmarks'],
+    queryFn: listMyBenchmarks,
+    staleTime: 10_000,
+  })
+}
+
+export function useCreateBenchmark() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: BenchmarkCreateInput) => createBenchmark(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-benchmarks'] })
+    },
+  })
+}
+
+export function useStartBenchmark() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => startBenchmark(id),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ['my-benchmarks'] })
+      void queryClient.invalidateQueries({ queryKey: ['match', data.matchId] })
+    },
+  })
+}
+
+export function useCancelBenchmark() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => cancelBenchmark(id),
+    onSuccess: (summary: BenchmarkSummary) => {
+      void queryClient.invalidateQueries({ queryKey: ['my-benchmarks'] })
+      void queryClient.setQueryData<BenchmarkSummary[]>(['my-benchmarks'], (old) =>
+        (old ?? []).map((b) => (b.id === summary.id ? summary : b)),
+      )
+    },
+  })
+}
+
+export function useDeleteBenchmark() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteBenchmark(id),
+    onSuccess: (_data, id) => {
+      void queryClient.setQueryData<BenchmarkSummary[]>(['my-benchmarks'], (old) =>
+        (old ?? []).filter((b) => b.id !== id),
+      )
     },
   })
 }

@@ -208,6 +208,14 @@ export default function History() {
                     >
                       {m.status}
                     </span>
+                    {m.matchType === 'llm_vs_user' && (
+                      <span
+                        className="rounded bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300"
+                        title={m.humanName ? `Human participant: ${m.humanName}` : 'Human participant'}
+                      >
+                        LLM vs User
+                      </span>
+                    )}
                     <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
                       {m.timeControl}
                     </span>

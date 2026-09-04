@@ -15,6 +15,7 @@ import {
   Radio,
   Swords,
   Layers,
+  Plus,
 } from 'lucide-react'
 import { useBenchmarkMetrics, type ModelBenchmarkData } from '../lib/queries'
 
@@ -602,6 +603,13 @@ export default function Benchmark() {
           >
             <Swords className="h-3.5 w-3.5 text-slate-400" />
             <span>Match History</span>
+          </Link>
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Run your own benchmark</span>
           </Link>
         </div>
       </div>
